@@ -1,0 +1,8 @@
+target/
+.idea*
+.vagrant*
+app/sites/all/modules/contrib/examples/
+
+# Mas OS X #
+*.DS_store
+nbproject/*

@@ -1,0 +1,421 @@
+<?php
+
+/**
+ * Implements hook_install().
+ *
+ * Perform actions to set up the site for this profile.
+ */
+function kode4_install() {
+  drush_print_r('Base Drupal environment built.');
+  drush_print_r('Initializing core environment build.');
+  // Set some variables.
+  variable_set('maintenance_mode', '1');
+  variable_set('elysia_cron_disabled', '1');
+  drush_print_r('Maintenance Mode set to ' . variable_get('maintenance_mode'));
+  // Enable modules.
+  drush_print_r('Enabling core kode4 modules.');
+  _kode4_enable_modules();
+  drush_print_r('Core kode4 modules enabled.');
+  // Enable some kode4 blocks.
+  $default_theme = 'bartik';
+  $admin_theme = 'seven';
+  // Enable $default_theme.
+  kode4_theme_enable($default_theme);
+
+  // Enable $admin_theme.
+  kode4_theme_enable($admin_theme);
+
+  variable_set('theme_default', $default_theme);
+  variable_set('admin_theme', $admin_theme);
+  // Activate admin theme when editing a node.
+  variable_set('node_admin_theme', '1');
+
+  drush_print_r('Default theme set to ' . variable_get('theme_default'));
+  drush_print_r('Admin theme set to ' . variable_get('admin_theme'));
+
+  // Set default regions for system blocks.
+  _kode4_process_system_blocks($default_theme, $admin_theme);
+
+  // Allow visitor account creation, but with administrative approval.
+  variable_set('user_register', USER_REGISTER_VISITORS_ADMINISTRATIVE_APPROVAL);
+
+  // Enable default permissions for system roles.
+  user_role_grant_permissions(DRUPAL_ANONYMOUS_RID, array('access content'));
+  user_role_grant_permissions(DRUPAL_AUTHENTICATED_RID, array('access content'));
+
+  // Update the menu router information.
+  menu_rebuild();
+  // Revert features to ensure they are all installed.
+  drush_print_r('Reverting features.');
+  $features = _kode4_features();
+  features_revert(array('module' => $features));
+  cache_clear_all();
+  // Enable modules post features.
+  drush_print_r('Enabling post modules.');
+  _kode4_post_enable_modules();
+  drush_print_r('Post modules enabled.');
+  node_access_rebuild();
+
+  _kode4_remove_ckeditor_default_settings();
+
+  drush_print_r('Maintenance Mode set to ' . variable_get('maintenance_mode'));
+  // Ignore any rebuild messages.
+  node_access_needs_rebuild(FALSE);
+  // Ignore any other install messages.
+  drupal_get_messages();
+  drush_print_r('kode4 core site built.');
+}
+
+/**
+ * Set the features to revert.
+ *
+ * @return array
+ *   Array of features.
+ */
+function _kode4_features() {
+  $features = array(
+    'penton_date_formats',
+    'penton_text_formats',
+    'penton_field_bases',
+    'penton_categories',
+    'penton_program',
+    'penton_article_type',
+    'penton_page_type',
+    'penton_article',
+    'penton_media_entity',
+    'penton_page',
+    'penton_block_content',
+    'penton_gating_copy',
+    'penton_permissions',
+    'penton_data_tables',
+    'penton_data_table_detail',
+    'penton_display_admin',
+    'penton_user_info',
+    'penton_publish_webservices',
+    'penton_cron',
+    'penton_feature_forward',
+    'penton_print_settings',
+    'penton_service_links',
+    'penton_google_sitemap',
+    'penton_rss_feeds',
+    'penton_subtheme',
+    'penton_menus',
+    'penton_performance',
+    'penton_user_features_overrides',
+    'penton_inline_form_errors_settings',
+    'penton_paths',
+    'penton_metatags',
+    'penton_cache_exclude',
+    'penton_services_endpoint',
+    'penton_cache_expire',
+  );
+  return $features;
+}
+
+/**
+ * Enable modules after feature revertion.
+ *
+ * 
+ */
+function _kode4_post_enable_modules() {
+  $modules = array(
+    'penton_taxonomy_generate',
+  );
+  module_enable($modules, FALSE);
+}
+
+/**
+ * Enable modules and features.
+ *
+ * 
+ */
+function _kode4_enable_modules() {
+  // Core and contributed modules.
+  $core_modules = array(
+    'node',
+    'field',
+    'field_sql_storage',
+    'field_ui',
+    'filter',
+    'text',
+    'file',
+    'image',
+    'list',
+    'menu',
+    'number',
+    'options',
+    'path',
+    'profile',
+    'search',
+    'taxonomy',
+    'comment',
+    'book',
+    'system',
+    'user',
+    'uuid',
+    'ctools',
+    'context',
+    'date',
+    'date_api',
+    'entity',
+    'entityreference',
+    'entity_modified',
+    'fences',
+    'role_field',
+    'libraries',
+    'nodeblock',
+    'token',
+    'pathauto',
+    'strongarm',
+    'metatag',
+    'metatag_opengraph',
+    'metatag_twitter_cards',
+    'jquery_update',
+    'variable',
+    'views',
+    'features',
+    'services',
+    'rest_server',
+    'fe_block',
+    'logintoboggan',
+    'addressfield',
+    'link',
+    'email',
+    'redirect',
+    'path_redirect_import',
+    'features_override',
+    'elysia_cron',
+    'menu_fields',
+    'service_links',
+    'service_links_sprites',
+    'general_services',
+    'widget_services',
+    'forward',
+    'print',
+    'print_ui',
+    'recaptcha',
+    'googlenews',
+    'profile2',
+    'update',
+    'admin_menu',
+    'migrate',
+    'migrate_d2d',
+    'view_unpublished',
+    'ife',
+    'remember_me',
+    'navigation404',
+    'cloudflare',
+    'mollom',
+    'http_response_headers',
+    'xmlsitemap',
+    'xmlsitemap_node',
+    'xmlsitemap_taxonomy',
+    'xmlsitemap_user',
+    'penton_legal_comm',
+    'smtp',
+    'ckeditor',
+    'mailsystem',
+    'mimemail',
+    'prevent_js_alerts',
+    'cacheexclude',
+    'services_views',
+    'robotstxt',
+    'expire',
+    'cfpurge',
+    'site_verify',
+    'memcache',
+    'views_contextual_filter_query',
+    'contextual_range_filter',
+    'term_authoring_info',
+    'date_views',
+    'metatag_views',
+  );
+  // Features and custom modules.
+  $features = array(
+ //   'penton_core',
+    'penton_gated',
+    'penton_taxonomy',
+    'penton_datasheet',
+    'penton_comment',
+    'penton_author',
+    'penton_user',
+    'penton_content_manager',
+    'penton_author_articles',
+    'penton_content_preview',
+    'penton_date_formats',
+    'penton_text_formats',
+    'penton_field_bases',
+    'penton_categories',
+    'penton_program',
+    'penton_article_type',
+    'penton_page_type',
+    'penton_article',
+    'penton_media_entity',
+    'penton_page',
+    'penton_block_content',
+    'penton_gating_copy',
+    'penton_permissions',
+    'penton_user_permissions',
+    'penton_data_tables',
+    'penton_data_table_detail',
+    'penton_display_admin',
+    'penton_user_info',
+    'penton_publish_webservices',
+//    'penton_dfp',
+    'penton_cron',
+    'penton_feature_forward',
+    'penton_print_settings',
+    'penton_service_links',
+    'penton_google_sitemap',
+    'penton_rss_feeds',
+    'penton_image_styles',
+    'penton_captcha',
+    'penton_modal',
+    'penton_homepage_display',
+    'penton_googlesitemap',
+    'penton_blocks',
+    'penton_user_features_overrides',
+    'penton_subtheme',
+    'penton_menus',
+//    'penton_custom_dfp',
+//    'penton_adobe_dtm',
+    'penton_newsletter_manager',
+    'penton_social',
+    'penton_performance',
+    'penton_xmlsitemap',
+    'penton_sitemap_configuration',
+    'penton_related_content',
+    'penton_inline_form_errors_settings',
+//    'penton_tkli',
+    'penton_user_register',
+    'penton_syndicate_atom',
+    'penton_paths',
+    'penton_eloqua_api',
+    'penton_metatags',
+    'penton_mollom',
+    'penton_antispam',
+    'penton_full_gallery',
+    'penton_infinite_scroll',
+    'penton_maintenance_mode',
+    'penton_search',
+    'penton_wysiwyg',
+    'penton_cache_exclude',
+    'penton_services_endpoint',
+    'penton_cache_expire',
+    'penton_rss',
+  );
+  module_enable($core_modules, TRUE);
+  module_enable($features, FALSE);
+}
+
+/**
+ * Updates `system` table to change theme status to 1.
+ * Use instead of default theme_enable() if want to prevent cache clearing and etc.
+ *
+ * @param $theme_name
+ */
+function kode4_theme_enable($theme_name){
+  db_update('system')
+    ->fields(array('status' => 1))
+    ->condition('type', 'theme')
+    ->condition('name', $theme_name)
+    ->execute();
+}
+
+/**
+ * Set default regions for system blocks in core and admin theme.
+ *
+ * @param $default_theme
+ * @param $admin_theme
+ * @throws \Exception
+ */
+function _kode4_process_system_blocks($default_theme, $admin_theme){
+  $blocks = array(
+    array(
+      'module' => 'system',
+      'delta' => 'main',
+      'theme' => $default_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'user',
+      'delta' => 'login',
+      'theme' => $default_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'help',
+      'theme' => $default_theme,
+      'status' => 1,
+      'weight' => -10,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'main',
+      'theme' => $admin_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'help',
+      'theme' => $admin_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'help',
+      'pages' => '',
+      'cache' => -1,
+    ),
+  );
+  // Drop system / user blocks to ensure correct building.
+  db_delete('block')->condition('module', 'system')->execute();
+  db_delete('block')->condition('module', 'user')->execute();
+  // Add in our blocks defined above.
+  $query = db_insert('block')->fields(
+    array(
+      'module',
+      'delta',
+      'theme',
+      'status',
+      'weight',
+      'region',
+      'pages',
+      'cache',
+    )
+  );
+  foreach ($blocks as $block) {
+    $query->values($block);
+  }
+  $query->execute();
+}
+
+/**
+ * Ckeditor remove settings.
+ */
+function _kode4_remove_ckeditor_default_settings() {
+  $names = array('Advanced', 'Full');
+
+  db_delete('ckeditor_settings')
+    ->condition('name', $names, 'IN')
+    ->execute();
+
+  db_delete('ckeditor_input_format')
+    ->condition('name', $names, 'IN')
+    ->execute();
+}
+

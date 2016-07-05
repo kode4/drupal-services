@@ -1,0 +1,10 @@
+; Packaging information for kode4
+name = "kode4"
+description = "Main kode4 install profile."
+exclusive = "1"
+core = "7.x"
+; ----------
+; Dependencies
+; ----------
+dependencies[] = block
+dependencies[] = dblog
