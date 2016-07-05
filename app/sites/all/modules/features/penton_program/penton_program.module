@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton program feature.
- */
-
-include_once 'penton_program.features.inc';

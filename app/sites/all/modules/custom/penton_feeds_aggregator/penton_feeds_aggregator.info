@@ -1,8 +1,0 @@
-name = Penton Feeds Aggregator
-description = Allows importing data as nodes of specified content types from RSS feeds
-package = Feeds Aggregator
-dependencies[] = feeds
-dependencies[] = ctools
-dependencies[] = views
-dependencies[] = feeds_ui
-core = 7.x

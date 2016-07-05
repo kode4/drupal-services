@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Inline Form Errors Settings feature.
- */
-
-include_once 'penton_inline_form_errors_settings.features.inc';

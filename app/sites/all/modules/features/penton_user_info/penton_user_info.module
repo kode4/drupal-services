@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton User info feature.
- */
-
-include_once 'penton_user_info.features.inc';

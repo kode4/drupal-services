@@ -1,5 +1,0 @@
-name = Penton Adobe DTM
-package = Penton
-description = Manages Adobe DTM analytics.
-core = 7.x
-version = "7.x-0.1"

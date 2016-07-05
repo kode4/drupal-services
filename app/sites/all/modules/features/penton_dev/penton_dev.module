@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Development settings feature.
- */
-
-include_once 'penton_dev.features.inc';

@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Data Table Detail feature.
- */
-
-include_once 'penton_data_table_detail.features.inc';

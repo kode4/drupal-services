@@ -1,4 +1,0 @@
-name = Penton Syndicate Atom
-description = Provides an Atom feed of content cleared for syndication at /syndicate_atom
-core = 7.x
-package = "Penton"

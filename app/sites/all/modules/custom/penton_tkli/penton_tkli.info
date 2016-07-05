@@ -1,6 +1,0 @@
-name = Penton TKLi
-package = Penton
-description = Create TKLi step for Penton registration form
-core = 7.x
-version = "7.x-0.1"
-dependencies[] = penton_modal

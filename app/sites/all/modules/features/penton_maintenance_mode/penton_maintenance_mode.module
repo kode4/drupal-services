@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Maintenance Mode feature.
- */
-
-include_once 'penton_maintenance_mode.features.inc';

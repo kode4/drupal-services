@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Cache Expire feature.
- */
-
-include_once 'penton_cache_expire.features.inc';

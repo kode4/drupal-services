@@ -1,7 +1,0 @@
-name = Penton Gated
-package = Penton
-description = Manages gated content across site.
-core = 7.x
-version = "7.x-0.1"
-files[] = tests/penton_gated.test
-dependencies[] = penton_modal

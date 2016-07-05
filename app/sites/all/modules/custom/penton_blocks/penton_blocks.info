@@ -1,6 +1,0 @@
-name = Penton Blocks
-package = Penton
-description = Penton Custom Blocks
-core = 7.x
-version = "7.x-0.1"
-dependencies[] = penton_homepage_display

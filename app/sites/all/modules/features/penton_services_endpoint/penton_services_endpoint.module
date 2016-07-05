@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Services Endpoint feature.
- */
-
-include_once 'penton_services_endpoint.features.inc';

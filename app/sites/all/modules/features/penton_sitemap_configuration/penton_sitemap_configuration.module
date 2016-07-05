@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Sitemap Configuration feature.
- */
-
-include_once 'penton_sitemap_configuration.features.inc';

@@ -1,5 +1,0 @@
-name = Penton Author
-package = Penton
-description = Features around authors
-core = 7.x
-version = "7.x-0.1"

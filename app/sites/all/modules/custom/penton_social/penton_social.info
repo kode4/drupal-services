@@ -1,5 +1,0 @@
-name = Penton Social
-description = Extending the social modules for Penton needs.
-core = 7.x
-dependencies[] = service_links
-dependencies[] = widget_services

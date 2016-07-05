@@ -1,5 +1,0 @@
-name = Penton User
-package = Penton
-description = Manages all user-related features.
-core = 7.x
-version = "7.x-0.1"

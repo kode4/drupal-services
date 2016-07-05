@@ -1,6 +1,0 @@
-name = Penton Antispam
-package = Penton
-description = Manages antispam protection.
-core = 7.x
-version = "7.x-0.1"
-dependencies[] = penton_comment

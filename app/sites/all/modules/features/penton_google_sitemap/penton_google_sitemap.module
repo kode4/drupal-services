@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Google Sitemap feature.
- */
-
-include_once 'penton_google_sitemap.features.inc';

@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Gating Copy feature.
- */
-
-include_once 'penton_gating_copy.features.inc';

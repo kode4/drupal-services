@@ -1,8 +1,0 @@
-<?php
-/**
- * @file
- * This is a core module for penton for installing development modules
- *
- * This module provides any functions for development purposes on the
- * penton websites. Use this for initial setup and global functionality
- */

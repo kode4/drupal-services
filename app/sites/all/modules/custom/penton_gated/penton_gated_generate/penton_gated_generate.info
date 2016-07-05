@@ -1,6 +1,0 @@
-name = Penton Gated Generate
-package = Penton
-description = Helper module to generate content and user against gated features.
-core = 7.x
-version = "7.x-0.1"
-configure = admin/config/development/penton_gated_generate

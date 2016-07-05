@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Metatags feature.
- */
-
-include_once 'penton_metatags.features.inc';

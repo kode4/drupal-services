@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton print settings feature.
- */
-
-include_once 'penton_print_settings.features.inc';

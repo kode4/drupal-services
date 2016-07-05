@@ -1,7 +1,0 @@
-name = Penton Taxonomy
-package = Penton
-description = Extends drupal taxonomy for Penton specific purposes
-core = 7.x
-version = "7.x-0.1"
-dependencies[] = taxonomy
-dependencies[] = metatag

@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Feeds Aggregator Settings feature.
- */
-
-include_once 'penton_feeds_aggregator_settings.features.inc';

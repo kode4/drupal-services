@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton Cron feature.
- */
-
-include_once 'penton_cron.features.inc';

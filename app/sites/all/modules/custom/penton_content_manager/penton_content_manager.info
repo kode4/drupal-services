@@ -1,7 +1,0 @@
-name = Penton Content Manager
-package = Penton
-description = Manages the content manager role and permissions.
-core = 7.x
-version = "7.x-0.1"
-dependencies[] = redirect
-dependencies[] = services

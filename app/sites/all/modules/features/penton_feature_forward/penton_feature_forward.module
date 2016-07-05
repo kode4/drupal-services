@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the Penton forward feature.
- */
-
-include_once 'penton_feature_forward.features.inc';

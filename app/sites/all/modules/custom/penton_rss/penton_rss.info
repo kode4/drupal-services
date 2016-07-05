@@ -1,5 +1,0 @@
-name = Penton Rss feeds
-package = Penton
-description = Penton Rss feeds for each category
-core = 7.x
-version = "7.x-0.1"
