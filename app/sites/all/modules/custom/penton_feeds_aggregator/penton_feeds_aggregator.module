@@ -1,0 +1,682 @@
+<?php
+/**
+ * @file
+ * Manages feeds.
+ */
+
+
+define('PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE', 'penton_feed');
+/**
+ * Implements hook_node_info().
+ */
+function penton_feeds_aggregator_node_info() {
+  $items = array(
+    PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE => array(
+      'name' => t('Penton Feed'),
+      'base' => 'node_content',
+      'description' => t('This content type is being used by Penton Feeds Aggregator for importing content from RSS feed'),
+      'has_title' => '1',
+      'title_label' => t('Title'),
+      'help' => '',
+    ),
+  );
+  drupal_alter('node_info', $items);
+  return $items;
+}
+
+/**
+ * Implements hook_feeds_plugins().
+ */
+function penton_feeds_aggregator_feeds_plugins() {
+  $path = drupal_get_path('module', 'penton_feeds_aggregator') . '/plugins';
+  $info = array();
+  $info['FeedsPentonAggregatorProcessor'] = array(
+    'name' => 'Penton Aggregator Processor',
+    'description' => 'Specific node processor for using only with Penton Feeds Aggregator',
+    'help' => 'Specific node processor for using only with Penton Feeds Aggregator',
+    'handler' => array(
+      'parent' => 'FeedsProcessor',
+      'class' => 'FeedsPentonAggregatorProcessor',
+      'file' => 'FeedsPentonAggregatorProcessor.inc',
+      'path' => $path,
+    ),
+  );
+  $info['FeedsBloombergHTTPFetcher'] = array(
+    'name' => 'Penton Aggregator HTTP Fetcher',
+    'description' => 'Specific node processor for using only with Penton Feeds Aggregator',
+    'help' => 'Specific node processor for using only with Penton Feeds Aggregator',
+    'handler' => array(
+      'parent' => 'FeedsFetcher',
+      'class' => 'FeedsBloombergHTTPFetcher',
+      'file' => 'FeedsBloombergHTTPFetcher.inc',
+      'path' => $path,
+    ),
+  );
+  $info['FeedsPentonSyndicationParser'] = array(
+    'name' => 'Penton Syndication Parser',
+    'description' => 'Specific parser for using only with Penton Feeds Aggregator',
+    'help' => 'Specific parser for using only with Penton Feeds Aggregator',
+    'handler' => array(
+      'parent' => 'FeedsSyndicationParser',
+      'class' => 'FeedsPentonSyndicationParser',
+      'file' => 'FeedsPentonSyndicationParser.inc',
+      'path' => $path,
+    ),
+  );
+  return $info;
+}
+
+/**
+ * Returns true if given node is aggregated.
+ */
+function penton_feeds_aggregator_node_is_aggregated($node) {
+  if (isset($node->feeds_node_item)) {
+    $id = $node->feeds_node_item->id;
+    if ($id == 'penton_feed_importer') {
+      return TRUE;
+    }
+  }
+}
+
+
+/**
+ * Implements hook_ctools_plugin_api().
+ */
+function penton_feeds_aggregator_ctools_plugin_api() {
+  list($module, $api) = func_get_args();
+  if ($module == 'feeds' && $api == 'feeds_importer_default') {
+    return array('version' => 1);
+  }
+}
+
+/**
+ * Implements hook_form().
+ */
+function penton_feeds_aggregator_form($node, $form_state) {
+  return node_content_form($node, $form_state);
+}
+
+/**
+ * Implements hook_menu().
+ */
+function penton_feeds_aggregator_menu() {
+  $items['admin/feeds'] = array(
+    'title' => 'Feeds',
+    'description' => 'Administer feeds.',
+    'position' => 'left',
+    'weight' => -10,
+    'page callback' => 'system_admin_menu_block_page',
+    'access arguments' => array('access administration pages'),
+    'file' => 'system.admin.inc',
+    'file path' => drupal_get_path('module', 'system'),
+  );
+
+  $items['admin/feeds/penton_feeds_aggregator'] = array(
+    'title' => 'Penton Feeds Aggregator',
+    'description' => 'View list of all created feeds by Penton Feeds Aggregator.',
+    'page callback' => 'penton_feeds_aggregator_admin_overview',
+    'access callback' => 'user_access',
+    'access arguments' => array('administer feeds'),
+    'file' => 'penton_feeds_aggregator.admin.inc',
+  );
+
+  $items['admin/feeds/penton_feeds_aggregator/mapping'] = array(
+    'title' => 'Penton Feeds Aggregator',
+    'page callback' => 'penton_mapping_table',
+    'access callback' => 'user_access',
+    'access arguments' => array('administer feeds'),
+    'file' => 'penton_feeds_aggregator.mapping.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Returns importer name.
+ */
+function penton_feeds_aggregator_get_importer_name() {
+  $importers = db_query('SELECT importers.* FROM {feeds_importer} importers');
+  while ($importer = $importers->fetch()) {
+    $config = unserialize($importer->config);
+    if ($config['processor']['plugin_key'] == 'FeedsPentonAggregatorProcessor') {
+      if ($importer->id != 'penton_feed_importer') {
+        drupal_get_messages('error', TRUE);
+        drupal_set_message('There is more than one importer with custom FeedsPentonAggregtorProccesor, it is wrong behavior and Penton Feeds Aggregator module may work incorrect', 'error');
+      }
+    }
+  }
+  return 'penton_feed_importer';
+}
+
+/**
+ * Implements hook_nodewords_tags_alter().
+ */
+function penton_feeds_aggregator_nodewords_tags_alter(&$output, $parameters) {
+  if ($parameters['type'] == NODEWORDS_TYPE_NODE) {
+    $node = menu_get_object();
+    if (isset($node->feeds_node_item) &&
+      !empty($node->feeds_node_item->url) &&
+      empty($node->nodewords['canonical']['value']) &&
+      strpos($node->feeds_node_item->url, 'guid-') === FALSE
+    ) {
+      $output['canonical'] = $node->feeds_node_item->url;
+    }
+  }
+}
+
+/**
+ * Returns attached content type.
+ */
+function penton_feeds_aggregator_get_attached_content_type() {
+  $importer = penton_feeds_aggregator_get_importer_name();
+  $config_object = db_query(
+    'SELECT importers.config FROM {feeds_importer} importers WHERE id = :id',
+    array(':id' => $importer)
+  )->fetch();
+
+  if (!empty($config_object)) {
+    $config = unserialize($config_object->config);
+    if (!empty($config['content_type'])) {
+      return $config['content_type'];
+    }
+  }
+
+  return PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE;
+}
+
+/**
+ * Returns target content type.
+ */
+function penton_feeds_aggregator_get_target_content_type($feed_nid) {
+  $conf_result = db_query('SELECT config FROM {feeds_source} WHERE feed_nid = :feed_nid', array(':feed_nid' => $feed_nid))->fetch();
+  $config = unserialize($conf_result->config);
+
+  $type_result = db_query('SELECT node_type.name FROM {node_type} WHERE node_type.type = :type',
+    array(':type' => PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE))->fetch();
+  return $type_result->name;
+}
+
+/**
+ * Creates a cron task.
+ */
+function penton_feeds_aggregator_cron() {
+  $result_feeds = db_query(
+    'SELECT n.nid FROM {node} n WHERE n.type = :type',
+    array(':type' => PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE)
+  );
+
+  while ($feed_nid = $result_feeds->fetchField()) {
+    $feed_info = penton_feeds_aggregator_get_feed_info($feed_nid);
+    $expire_time = $feed_info['feed_expire_period'];
+    $schedule_time = $feed_info['feed_import_period'];
+
+    if (FEEDS_SCHEDULE_NEVER != $schedule_time) {
+      $result = db_query(
+        'SELECT last_import as last_time FROM {penton_feeds_aggregator_last_import} WHERE feed_nid = :feed_nid',
+        array(':feed_nid' => $feed_nid)
+      );
+
+      $last_import_time = $result->fetchField();
+
+      if (is_null($last_import_time->last_time) || $last_import_time->last_time < FEEDS_REQUEST_TIME - $schedule_time) {
+        penton_feeds_aggregator_feeds_source_import($feed_nid);
+      }
+    }
+
+    if (FEEDS_EXPIRE_NEVER != $expire_time) {
+      $result = db_query(
+        'SELECT fni.entity_id FROM {feeds_item} fni
+         WHERE fni.feed_nid = :feed_nid AND fni.imported < :imported',
+        array(
+          ':feed_nid' => $feed_nid,
+          ':imported' => FEEDS_REQUEST_TIME - $expire_time,
+        )
+      );
+
+      if (4 == $feed_info['feed_expire_action']) {
+        while ($nid = $result->fetchField()) {
+          $already_expired = db_query('SELECT COUNT(*) FROM {penton_feeds_aggregator_node_expire} WHERE nid = :nid', array(':nid' => $nid));
+          if ($already_expired->fetchField() == 0) {
+            penton_feeds_aggregator_feeds_node_unpublish($nid);
+          }
+        }
+      }
+      else {
+        while ($nid = $result->fetchField()) {
+          $already_expired = db_query('SELECT COUNT(*) FROM {penton_feeds_aggregator_node_expire} WHERE nid = :nid', array(':nid' => $nid));
+          if ($already_expired->fetchField() == 0) {
+            penton_feeds_aggregator_feeds_node_delete($nid);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Used for batch unpublishing.
+ */
+function penton_feeds_aggregator_feeds_node_unpublish($nid) {
+  if ($node = node_load($nid, NULL, TRUE)) {
+    $node->status = 0;
+    node_save($node);
+    db_query("INSERT INTO {penton_feeds_aggregator_node_expire} VALUES (:nid, :ts)", array(
+      ':nid' => $nid,
+      ':ts' => time(),
+    ));
+
+    watchdog(
+      'action',
+      'Set @type %title to unpublished.',
+      array('@type' => 'article', '%title' => $node->title)
+    );
+    drupal_set_message(
+      t('@type %title has been unpublished.',
+        array(
+          '@type' => 'article',
+          '%title' => $node->title,
+        ))
+    );
+  }
+}
+
+/**
+ * Deletes given node feeds.
+ */
+function penton_feeds_aggregator_feeds_node_delete($nid) {
+
+  if ($node = node_load($nid, NULL, TRUE)) {
+
+    entity_delete('node', $nid);
+    // Remove this node from the search index if needed.
+    if (function_exists('search_wipe')) {
+      search_wipe($node->nid, 'node');
+    }
+    watchdog('content', '@type: deleted %title.', array(
+      '@type' => $node->type,
+      '%title' => $node->title,
+    ));
+    drupal_set_message(
+      t('@type %title has been deleted.',
+        array(
+          '@type' => $node->type,
+          '%title' => $node->title,
+        ))
+    );
+  }
+}
+
+/**
+ * Scheduler callback for importing from a source.
+ */
+function penton_feeds_aggregator_feeds_source_import($feed_id) {
+  $source = feeds_source(
+    penton_feeds_aggregator_get_importer_name(),
+    $feed_id
+  );
+  try {
+    $source->existing()->import();
+  }
+  catch (FeedsNotExistingException $e) {
+    // Do nothing.
+  }
+  catch (Exception $e) {
+    watchdog('feeds_source_import()', $e->getMessage(), array(), WATCHDOG_ERROR);
+  }
+}
+
+/**
+ * Returns feed info.
+ */
+function penton_feeds_aggregator_get_feed_info($feed_nid) {
+  $result = array();
+
+  if ($feed_nid != 'add') {
+    $conf_result = db_query('SELECT config FROM {feeds_source} WHERE feed_nid = :feed_nid', array(':feed_nid' => $feed_nid))->fetch();
+    $config = unserialize($conf_result->config);
+    $config_source = $config['FeedsBloombergHTTPFetcher']['source'];
+    $config = $config['FeedsPentonAggregatorProcessor'];
+    $params = penton_feeds_aggregator_get_feed_params();
+    $result['source'] = $config_source;
+    foreach ($params as $param) {
+      $result[$param] = $config[$param];
+    }
+  }
+  return $result;
+}
+
+/**
+ * Returns feed params.
+ */
+function penton_feeds_aggregator_get_feed_params() {
+  return array(
+    'feed_expire_period',
+    'feed_import_period',
+    'feed_expire_action',
+    'feed_author',
+    'feed_mapping',
+    'feed_promote_option',
+    'feed_input_format',
+    'feed_authorize',
+    'update_existing',
+    'feed_bloomberg',
+    'feed_publish_option',
+    'feed_contributors',
+    'feed_privacy_settings',
+    'feed_primary_category',
+    'feed_secondary_category',
+    'feed_program',
+    'feed_promote_on_site_lists_and_rss',
+    'feed_google_news_flag',
+    'feed_press_release_flag',
+    'feed_aggregated_content',
+    'feed_native_advertising',
+    'feed_syndicate',
+    'feed_noindex',
+  );
+}
+
+/**
+ * Returns feed node info.
+ */
+function penton_feeds_aggregator_get_feed_node_info($node_id) {
+  $result = array();
+
+  $result_query = db_query(
+    'SELECT fni.imported, fni.feed_nid, ne.expired FROM {feeds_item} fni
+     LEFT JOIN {penton_feeds_aggregator_node_expire} ne ON fni.entity_id = ne.nid
+     WHERE fni.entity_id = :nid',
+    array(':nid' => $node_id)
+  );
+
+  $feed_node = $result_query->fetch();
+
+  if (0 != $feed_node->expired) {
+    return $result['expire_time'] = 0;
+  }
+
+  $conf_result = db_query('SELECT config FROM {feeds_source} WHERE feed_nid = :feed_nid', array(':feed_nid' => $feed_node->feed_nid))->fetch();
+  $config = unserialize($conf_result->config);
+  $config = $config['FeedsPentonAggregatorProcessor'];
+
+  if (FEEDS_EXPIRE_NEVER == $config['feed_expire_period']) {
+    return $result;
+  }
+
+  $result['expire_time'] = $feed_node->imported + $config['feed_expire_period'];
+  $result['expire_action'] = $config['feed_expire_action'];
+
+  return $result;
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function penton_feeds_aggregator_form_alter(&$form, &$form_state) {
+  if (empty($form['type']['#value'])) {
+    return;
+  }
+
+  $node_type = $form['#node']->type;
+  if ($form['#id'] == 'article-node-form' && $node_type == 'article') {
+    $feed_nid = penton_feeds_aggregator_get_feed_source_nid($form['nid']['#value']);
+    if (!empty($feed_nid)) {
+      $node_title = db_query('SELECT title FROM {node} WHERE nid = :nid', array(':nid' => $feed_nid))->fetch()->title;
+      $expire_info = penton_feeds_aggregator_get_feed_node_info($form['nid']['#value']);
+      $msg = 'This content is aggregated by <a href="/' . drupal_get_path_alias('node/' . $feed_nid) . '">' . $node_title . '</a> feed.';
+      if (!empty($expire_info) && 0 != $expire_info['expire_time']) {
+        $action = ($expire_info['expire_action'] == 4 ? 'unpublished' : 'deleted'); /* FEEDS_EXPIRE_ACTION_UNPUBLISH */
+        $expire = array(
+          'action' => $action,
+          'date' => date('m/d/y h:i:s A', $expire_info['expire_time']),
+        );
+        $msg .= ' This node will be ' . $expire['action'] . ' at ' . $expire['date'];
+      }
+      drupal_set_message($msg);
+      $form['#after_build'][] = 'penton_feeds_aggregator_alter_feed_source';
+    }
+    elseif (!module_exists('penton_aggregator') || $node_type != 'aggregated_content') {
+      $form['#after_build'][] = 'penton_feeds_aggregator_alter_feed_source';
+    }
+  }
+  elseif ($node_type == PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE && arg(2) == 'clone') {
+    $heritage = array();
+    $heritage['data'] = penton_feeds_aggregator_get_feed_info(arg(1));
+    $form['feeds']['FeedsBloombergHTTPFetcher']['source']['#default_value'] = $heritage['data']['source'];
+    $params = penton_feeds_aggregator_get_feed_params();
+    foreach ($params as $param) {
+      $form['feeds']['FeedsPentonAggregatorProcessor'][$param]['#default_value'] = $heritage['data'][$param];
+    }
+  }
+
+  // Add Bloomberg checkbox.
+  if ($node_type == PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE) {
+    $values = penton_feeds_aggregator_get_feed_info(arg(1));
+    $form['feeds']['FeedsBloombergHTTPFetcher']['feed_bloomberg'] = array(
+      '#type' => 'checkbox',
+      '#title' => 'Bloomberg',
+      '#default_value' => (isset($values['feed_bloomberg'])) ? $values['feed_bloomberg'] : 0,
+    );
+  }
+}
+
+/**
+ * Implements hook_alter_feed_source().
+ */
+function penton_feeds_aggregator_alter_feed_source($form, &$form_state) {
+  $options = array("" => '-None-');
+  $feeds = db_query("SELECT nid, title FROM {node} WHERE type='" . PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE . "'");
+  while ($feed = $feeds->fetch()) {
+    $options[$feed->nid] = $feed->title;
+  }
+
+  $form['field_feed_source']['value']['#options'] = $options;
+
+  return $form;
+}
+
+/**
+ * Implements hook_node_prepare().
+ */
+function penton_feeds_aggregator_node_prepare($node) {
+  return $node;
+}
+
+/**
+ * Returns feed author.
+ */
+function penton_feeds_aggregator_get_feed_author($feed_id) {
+  $feed_info = penton_feeds_aggregator_get_feed_info($feed_id);
+  if (isset($feed_info['feed_author'])) {
+    return $feed_info['feed_author'];
+  }
+  else {
+    global $user;
+    return $user->name;
+  }
+}
+
+/**
+ * Creates node expire entry in database.
+ */
+function penton_feeds_aggregator_insert_node_expire($nid) {
+  db_query("INSERT INTO {penton_feeds_aggregator_node_expire} (nid, expired) VALUES ('%s', 0)", $nid);
+}
+
+/**
+ * Perses description for unwanted tags.
+ *
+ * Looking for badly rendered div's before saving
+ * as our parser doesn't know how to read the &lt; and &gt; codes.
+ * Also it's got to be a valid text in description field
+ * not a html hunks.
+ * Convert string in body and teaser if it has a faulty substrings then
+ * put decoded substring to a field_byline field.
+ * Deletes 'read more' anchor.
+ *
+ * @param array $item
+ *   Feed item.
+ */
+function penton_feeds_aggregator_parse_description(&$item) {
+  $dom_items_to_remove = array();
+  $parsed_description = array();
+  $doc = new DOMDocument('1.0', 'utf-8');
+  $url = $item['url'];
+  $item['description'] = str_replace(array(
+    '<![CDATA[',
+    ']]>',
+  ), '', $item['description']);
+  $doc->loadHTML('<?xml encoding="utf-8">' . htmlspecialchars_decode($item['description']));
+
+  // Look for 'read more' anchor.
+  $desc_urls = $doc->getElementsByTagName('a');
+  foreach ($desc_urls as $desc_url) {
+    $attribute = $desc_url->getAttribute('href');
+    if ($attribute == $url && $desc_url->nodeValue == 'read more') {
+      $dom_items_to_remove[] = $desc_url;
+    }
+  }
+
+  $desc_divs = $doc->getElementsByTagName('div');
+  foreach ($desc_divs as $desc_div) {
+    $attribute = $desc_div->getAttribute('class');
+    if ($attribute == 'field-deck' || $attribute == 'feedflare') {
+      // Look for unnecessary divs.
+      $dom_items_to_remove[] = $desc_div;
+    }
+    elseif (strpos($attribute, 'node-body') !== FALSE) {
+      $desc_div->removeAttribute('class');
+    }
+    elseif (empty($item['author_name']) && $attribute == 'field-byline') {
+      // Look for 'field-byline'.
+      $dom_items_to_remove[] = $desc_div;
+      $item['author_name'] = trim($desc_div->nodeValue);
+    }
+  }
+
+  // Delete unwanted elements from description field.
+  foreach ($dom_items_to_remove as $dom_item) {
+    $dom_item->parentNode->removeChild($dom_item);
+  }
+
+  $allowed_tags = '<p><img><div><a><span><br><hr><b><i><h1><h2><h3><h4><h5><h6><table><thead><tbody><tr><th><td>';
+  $allowed_tags .= '<iframe><strong><small><em><ul><ol><li><blockquote>';
+  $desc_text = trim(strip_tags($doc->saveHTML(), $allowed_tags));
+  $item['description'] = $desc_text;
+}
+
+/**
+ * Returns feed source nid.
+ */
+function penton_feeds_aggregator_get_feed_source_nid($node_id) {
+  return db_query('SELECT feed_nid FROM {feeds_item} WHERE entity_id = :node_id', array(':node_id' => $node_id))->fetch()->feed_nid;
+}
+
+/**
+ * Implements hook_custom_theme().
+ */
+function penton_feeds_aggregator_custom_theme() {
+  $node = menu_get_object();
+  if (!empty($node->type) && $node->type == PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE) {
+    return variable_get('admin_theme', 'seven');
+  }
+}
+
+/**
+ * Feed items page.
+ */
+function penton_feeds_aggregator_preprocess_node(&$variables) {
+  if ($variables['node']->type == PENTON_FEEDS_AGGREGATOR_FEED_CONTENT_TYPE) {
+    $rows = array();
+    $per_page = 15;
+    $items = db_query(
+      'SELECT node.nid, node.changed, node.title, node.status
+       FROM {node}, {feeds_item} feed
+       WHERE feed.feed_nid=:feed_nid and node.nid=feed.entity_id
+       ORDER BY node.changed DESC',
+      array(':feed_nid' => arg(1))
+    )->fetchAll();
+
+    foreach ($items as $item) {
+      $rows[] = array(
+        'changed' => format_date($item->changed, 'short'),
+        'title' => l($item->title, 'node/' . $item->nid),
+        'status' => $item->status ? 'published' : 'unpublished',
+        'operations' => l(t('edit'), 'node/' . $item->nid . '/edit') . '&nbsp;&nbsp;&nbsp; ' . l(t('delete'), 'node/' . $item->nid . '/delete'),
+      );
+    }
+
+    if (!empty($rows)) {
+      $headers = array(
+        t('Changed'),
+        t('Title'),
+        t('Status'),
+        t('Operations'),
+      );
+
+      $current_page = pager_default_initialize(count($rows), $per_page);
+      $chunks = array_chunk($rows, $per_page, TRUE);
+
+      $variables['imported_items'] = theme(
+        'table',
+        array(
+          'header' => $headers,
+          'rows' => $chunks[$current_page],
+          'sticky' => FALSE,
+        )
+      );
+
+      $variables['imported_items_pager'] = theme(
+        'pager',
+        array(
+          'quantity',
+          count($rows),
+        )
+      );
+
+      $start = $current_page * $per_page + 1;
+      $total = count($rows);
+      $end = $current_page * $per_page + $per_page;
+      $end = $end > $total ? $total : $end;
+
+      $variables['imported_items_count'] = t(
+        'Showing :start - :end of :total',
+        array(
+          ':start' => $start,
+          ':end' => $end,
+          ':total' => count($rows),
+        )
+      );
+    }
+  }
+  elseif ($variables['node']->type == 'article' && $variables['view_mode'] == 'full') {
+    $node_meta = entity_metadata_wrapper('node', $variables['node']);
+    if (!empty($node_meta->field_penton_aggregated_content->value())) {
+      $result = db_select('feeds_item', 'fi')
+        ->fields('fi', array('url'))
+        ->condition('fi.entity_id', $node_meta->nid->value())
+        ->range(0, 1)
+        ->execute();
+
+      $url = $result->fetchCol();
+      if (!empty($url) && strpos($url[0], 'guid-') === FALSE) {
+        $variables['aggregated_original_url'] = $url[0];
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function penton_feeds_aggregator_theme($existing, $type, $theme, $path) {
+  $theme = array();
+  $theme['node__penton_feed'] = array(
+    'render element' => 'content',
+    'base hook' => 'node',
+    'template' => 'node--penton-feed',
+    'path' => drupal_get_path('module', 'penton_feeds_aggregator') . '/templates',
+  );
+  return $theme;
+}

@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Block Content feature.
+ */
+
+include_once 'penton_block_content.features.inc';

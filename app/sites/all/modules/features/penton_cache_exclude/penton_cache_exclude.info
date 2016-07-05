@@ -1,0 +1,12 @@
+name = Penton Cache Exclude
+description = Exclude urls from caching
+core = 7.x
+package = Penton Features
+version = 7.x-1.0-dev
+features[ctools][] = strongarm:strongarm:1
+features[features_api][] = api:2
+features[variable][] = cacheexclude_list
+features_exclude[dependencies][ctools] = ctools
+features_exclude[dependencies][strongarm] = strongarm
+no autodetect = 1
+project path = sites/all/modules/features

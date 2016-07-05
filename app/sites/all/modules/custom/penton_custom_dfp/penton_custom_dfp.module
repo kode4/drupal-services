@@ -1,0 +1,586 @@
+<?php
+/**
+ * @file
+ * Custom functionality for the DFP module.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function penton_custom_dfp_menu() {
+  $items = array();
+
+  $items['jivoxibuster.html'] = array(
+    'title' => 'Penton DFP load jivoxibuster',
+    'page callback' => 'penton_custom_dfp_load_three_party_ads',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+/**
+ * Get file for output three party ads.
+ */
+function penton_custom_dfp_load_three_party_ads() {
+  print file_get_contents(drupal_get_path('module', 'penton_custom_dfp') . '/files/jivoxibuster.html');
+}
+
+/* MODIFY ADMIN SECTION */
+/**
+ * Implements hook_token_info().
+ */
+function penton_custom_dfp_token_info() {
+  $info['tokens']['node']['field_penton_primary_category:parents:join:/'] = array(
+    'name' => t('Primary Category with all Parents'),
+    'description' => t('The primary category alongwith all its parents, starting with the root joined together with a "/" in-between each value.'),
+  );
+  $info['tokens']['user']['full_username_depend_of_profile_page'] = array(
+    'name' => t('Full name depend of profile page'),
+    'description' => t('The full username.'),
+  );
+  $info['tokens']['term']['name_lowercase_without_spaces_specialchars'] = array(
+    'name' => t('Name - lowercase without spaces and special chars'),
+    'description' => t('The term name (lowercase) without spaces and special characters.'),
+  );
+  $info['tokens']['dfp_tag']['site_id'] = array(
+    'name' => t('DFP Site ID'),
+    'description' => t('The site id root path in adUnitPath'),
+  );
+  return $info;
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function penton_custom_dfp_tokens($type, $tokens, array $data = array(), array $options = array()) {
+  $replacements = array();
+  $chars_to_replace = array(" ", "&", ",", ":", "-");
+
+  if ($type == 'node' && !empty($data['node'])) {
+    $node = $data['node'];
+
+    foreach ($tokens as $name => $original) {
+      $pos = strpos($name, "field_penton_primary_category:parents");
+      if ($pos !== FALSE) {
+        $tid = isset($node->field_penton_primary_category['und'][0]['tid']) ? $node->field_penton_primary_category['und'][0]['tid'] : "";
+        if (!empty($tid)) {
+          $cat_hier = array();
+          $parents = taxonomy_get_parents_all($tid);
+
+          if (is_array($parents) && (count($parents) > 0)) {
+            foreach ($parents as $parent) {
+              $cat_hier[] = $parent->name;
+            }
+          }
+
+          $replacements[$original] = preg_replace('/_{2,}/', '_', strtolower(str_replace($chars_to_replace, "_", implode('/', array_reverse($cat_hier)))));
+        }
+      }
+    }
+  }
+
+  if (isset($tokens['site_id'])) {
+    $replacements[$tokens['site_id']] = variable_get('dfp_tags_global_settings_site_id', '');
+  }
+
+  if ($type == 'term' && !empty($data['term']) && !empty($tokens['name_lowercase_without_spaces_specialchars'])) {
+    $term = $data['term'];
+    $term_array_names = array();
+    $term_parents = taxonomy_get_parents_all($term->tid);
+
+    if (is_array($term_parents) && count($term_parents) > 0) {
+      foreach ($term_parents as $termp) {
+        $term_array_names[] = $termp->name;
+      }
+    }
+    $term_array_names = array_reverse($term_array_names);
+    $replacements[$tokens['name_lowercase_without_spaces_specialchars']] = preg_replace('/_{2,}/', '_', strtolower(str_replace($chars_to_replace, "_", implode('/', $term_array_names))));
+  }
+
+  if ($type == 'user' && isset($tokens['full_username_depend_of_profile_page']) && strpos($_GET['q'], 'user') !== FALSE) {
+    $uid = (int) str_replace(array('user', '/', 'edit'), '', $_GET['q']);
+
+    if (empty($uid)) {
+      global $user;
+      $uid = $user->uid;
+    }
+
+    if (!empty($uid)) {
+      $user_local = user_load($uid);
+
+      $fullname = '';
+      if ($user_local) {
+        $fullname = (!empty($user_local->field_penton_profile[LANGUAGE_NONE][0]['name_line'])) ? $user_local->field_penton_profile[LANGUAGE_NONE][0]['name_line'] : $user_local->name;
+      }
+
+      $replacements[$tokens['full_username_depend_of_profile_page']] = $fullname;
+    }
+  }
+
+  return $replacements;
+}
+
+/**
+ * Implements hook_js_alter().
+ */
+function penton_custom_dfp_js_alter(&$javascript) {
+  foreach ($javascript as $key => $script) {
+    if (!empty($script['data']) && is_string($script['data']) && strpos($script['data'], 'googletag.cmd') !== FALSE) {
+      unset($javascript[$key]);
+    }
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function penton_custom_dfp_form_alter(&$form, $form_state, $form_id) {
+  if ($form_id == 'dfp_admin_settings') {
+    $form['global_tag_settings']['dfp_tags_global_settings_site_id'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Site ID'),
+      '#default_value' => variable_get('dfp_tags_global_settings_site_id', ''),
+      '#weight' => -1,
+      '#required' => TRUE,
+    );
+
+    $form['global_tag_settings']['dfp_tags_global_settings_viewport'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Enable Lazy Loading of ads'),
+      '#default_value' => variable_get('dfp_tags_global_settings_viewport', 0),
+      '#description' => t('This option enables initialization of the advertising on the pages only when the user is seeing them'),
+    );
+
+    $form['#submit'][] = 'penton_custom_dfp_form_submit';
+  }
+  if ($form_id == 'ctools_export_ui_edit_item_form' && isset($form_state['item']->machinename)) {
+    $item = $form_state['item'];
+
+    $location = (isset($item->settings['location'])) ? $item->settings['location'] : '';
+
+    $form['tag_display_options']['location'] = array(
+      '#title' => t('Location'),
+      '#type' => 'select',
+      '#default_value' => $location,
+      '#description' => t('Select the location on the site'),
+      '#options' => penton_custom_dfp_get_location(),
+      '#parents' => array('settings', 'location'),
+      '#ajax' => array(
+        'event' => 'change',
+        'wrapper' => 'ajax-chain-select-wrapper',
+        'callback' => 'penton_custom_dfp_position_ajax_callback',
+        'method' => 'replace',
+      ),
+    );
+
+    $form['tag_display_options']['position'] = array(
+      '#prefix' => '<div id="ajax-chain-select-wrapper">',
+      '#suffix' => '</div>',
+      '#title' => t('Position'),
+      '#type' => 'select',
+      '#description' => 'Select the position on a page',
+      '#options' => penton_custom_dfp_get_position_page_by_location($location),
+      '#default_value' => (isset($item->settings['position'])) ? $item->settings['position'] : '',
+      '#parents' => array('settings', 'position'),
+      '#validated' => TRUE,
+    );
+
+    $form['#submit'][] = 'penton_custom_dfp_generate_slot';
+  }
+}
+
+/**
+ * Ajax callback for chained select.
+ */
+function penton_custom_dfp_position_ajax_callback($form, $form_state) {
+  $location = (isset($form_state['values']['settings']['location'])) ? $form_state['values']['settings']['location'] : 'everywhere';
+  $positions = penton_custom_dfp_get_position_page_by_location($location);
+  $form['tag_display_options']['position']['#options'] = $positions;
+  return render($form['tag_display_options']['position']);
+}
+
+/**
+ * Generate prefix for slot name, callback for submit.
+ */
+function penton_custom_dfp_generate_slot($form, $form_state) {
+  if (isset($form_state['values']['slot'])) {
+    $values = $form_state['values'];
+
+    if (isset($form_state['item']->location)) {
+      $slot = str_replace("[{$form_state['item']->location}] ", '', $values['slot']);
+    }
+    else {
+      $slot = $values['slot'];
+    }
+
+    $form_state['item']->slot = "[{$values['settings']['location']}] {$slot}";
+  }
+}
+
+/**
+ * This fucntion for get position list.
+ *
+ * @param int|string $location
+ *   flag to get page position.
+ *
+ * @return array
+ *   return array ready to work with form select field.
+ */
+function penton_custom_dfp_get_position_page_by_location($location = 'everywhere') {
+  $positions = penton_custom_dfp_get_positions_page();
+
+  if (isset($positions[$location])) {
+    return array_merge($positions['everywhere'], $positions[$location]);
+  }
+
+  return $positions['everywhere'];
+}
+
+/**
+ * List positions.
+ */
+function penton_custom_dfp_get_positions_page() {
+  return array(
+    'everywhere' => array(
+      'top_banner' => t('Leaderboard'),
+      'bottom_banner' => t('Bottom'),
+      'hidden' => t('Before footer'),
+    ),
+    'homepage' => array(
+      'left_rail_rect' => t('Left Rail'),
+      'third_cat_jumbotron' => t('Rectangle & Jumbotron'),
+      'right_col_jumbotron' => t('Right Rail Jumbotron'),
+      'sponsored_logo' => t('Sponsored logo'),
+    ),
+    'article' => array(
+      'left_rail_rect' => t('Left Rail'),
+      'jumbotron' => t('Jumbotron'),
+      'sponsored_logo' => t('Sponsored logo'),
+      'infinitescroll' => t('Infinitescroll'),
+    ),
+    'search' => array(
+      'left_rail_rect' => t('Left Rail'),
+      'infinitescroll' => t('Infinitescroll'),
+    ),
+    'gallery' => array(
+      'right_rail_rect' => t('Right Rail'),
+      'interstitial' => t('Interstitial'),
+      'sponsored_logo' => t('Sponsored logo'),
+    ),
+    'taxonomy' => array(
+      'left_rail_rect' => t('Left Rail'),
+      'right_rail_rect' => t('Right Rail'),
+      'sponsored_logo' => t('Sponsored logo'),
+      'infinitescroll' => t('Infinitescroll'),
+    ),
+    'user' => array(
+      'left_rail_rect' => t('Left Rail'),
+    ),
+    'author' => array(
+      'left_rail_rect' => t('Left Rail'),
+      'jumbotron' => t('Jumbotron'),
+      'infinitescroll' => t('Infinitescroll'),
+    ),
+    'page' => array(),
+  );
+}
+
+/**
+ * This fucntion for get location list.
+ *
+ * @return array
+ *   return array ready to work with form select field.
+ */
+function penton_custom_dfp_get_location() {
+  return array(
+    'everywhere' => t('- Everywhere -'),
+    'homepage' => t('Homepage'),
+    'article' => t('Article'),
+    'taxonomy' => t('Taxonomy'),
+    'search' => t('Search'),
+    'gallery' => t('Gallery'),
+    'author' => t('Author'),
+    'user' => t('User'),
+    'page' => t('Page'),
+  );
+}
+
+/**
+ * Callback form submit.
+ */
+function penton_custom_dfp_form_submit($form, &$form_state) {
+  if (isset($form_state['values']['dfp_tags_global_settings_site_id'])) {
+    variable_set('dfp_tags_global_settings_site_id', $form_state['values']['dfp_tags_global_settings_site_id']);
+  }
+}
+
+/* MODIFY ADMIN SECTION */
+
+/**
+ * Sort dfp tags by location and position.
+ *
+ * @return array
+ *   $dfp_tags array with dfp tags
+ */
+function penton_custom_dfp_parse_dfp_tags() {
+  $dfp_tags = array();
+  $locations = penton_custom_dfp_get_location();
+
+  foreach ($locations as $name => $location) {
+    $dfp_tags[$name] = array();
+  }
+
+  $tags = dfp_tag_load_all();
+
+  foreach ($tags as $tag) {
+    if (isset($tag->settings['location'], $tag->settings['position']) && $locations[$tag->settings['location']]) {
+      $dfp_tags[$tag->settings['location']][$tag->settings['position']][] = penton_custom_dfp_filter_tokents($tag);
+    }
+  }
+
+  return $dfp_tags;
+}
+
+/**
+ * Filters replace tokens to values.
+ *
+ * @param Object $tag
+ *   dfp tag
+ *
+ * @return Object
+ *   dfp tag
+ */
+function penton_custom_dfp_filter_tokents($tag) {
+  $global_adunit = variable_get('dfp_default_adunit', '');
+  $reg = array(
+    'target' => 'reg',
+    'value' => 'anonymous',
+  );
+
+  if (empty($tag->adunit) && !empty($global_adunit)) {
+    $tag->adunit = $global_adunit;
+  }
+
+  $tag->adunit = dfp_token_replace('[dfp_tag:network_id]/' . $tag->adunit, $tag, array('sanitize' => TRUE, 'clear' => TRUE));
+  $tag->size = penton_custom_dfp_format_size($tag->size);
+  $tag->targeting = penton_custom_dfp_format_targeting($tag->settings['targeting'], $tag);
+  $tag->breakpoints = penton_custom_dfp_format_breakpoints($tag->settings['breakpoints']);
+
+  if (user_is_logged_in()) {
+    $reg['value'] = 'registered';
+  }
+
+  $test_ad = filter_input(INPUT_GET, 'testAd');
+
+  if (!empty($test_ad)) {
+    $test_ad = explode(',', $test_ad);
+    $tag->targeting[] = array(
+      'target' => 'testAd',
+      'value' => (count($test_ad) > 1) ? $test_ad : array_shift($test_ad),
+    );
+  }
+
+  if (module_exists('penton_eloqua_api')) {
+    foreach (penton_eloqua_api_get_name_params() as $eloqua_param) {
+      $get_case_low = array_change_key_case($_GET);
+      if (isset($get_case_low[$eloqua_param])) {
+        $tag->targeting[] = array(
+          'target' => $eloqua_param,
+          'value' => $get_case_low[$eloqua_param],
+        );
+      }
+    }
+  }
+
+  $tag->targeting[] = $reg;
+
+  if (isset($tag->slug)) {
+    $tag->slug = dfp_format_slug($tag->slug);
+  }
+
+  return $tag;
+}
+
+/**
+ * Format size breakpoints for json.
+ */
+function penton_custom_dfp_format_breakpoints($breakpoints) {
+  foreach ($breakpoints as $key => $target) {
+    $breakpoints[$key] = array(
+      'ad_sizes' => penton_custom_dfp_format_size($target['ad_sizes']),
+      'browser_size' => penton_custom_dfp_format_size($target['browser_size']),
+    );
+  }
+
+  return $breakpoints;
+}
+
+/**
+ * Format value targeting for json.
+ */
+function penton_custom_dfp_format_targeting($targeting, $tag = '') {
+  $result_targeting = array();
+
+  foreach ($targeting as $key => &$target) {
+    $target['target'] = check_plain($target['target']);
+    $target['value'] = dfp_token_replace(check_plain($target['value']), $tag, array('sanitize' => TRUE, 'clear' => TRUE));
+
+    // The target value could be blank if tokens are used. If so, removed it.
+    if (empty($target['value'])) {
+      unset($targeting[$key]);
+      continue;
+    }
+
+    // Convert the values into an array and trim the whitespace from each value.
+    $values = explode(',', $target['value']);
+    $values = array_map('trim', $values);
+
+    if (count($values) == 1) {
+      $target['value'] = $values[0];
+    }
+    elseif (count($values) > 1) {
+      $target['value'] = $values;
+    }
+
+    $result_targeting[] = array(
+      'target' => $target['target'],
+      'value' => $target['value'],
+    );
+  }
+
+  return $result_targeting;
+}
+
+/**
+ * Format size for json.
+ */
+function penton_custom_dfp_format_size($size) {
+  $formatted_sizes = array();
+
+  $sizes = explode(',', check_plain($size));
+  foreach ($sizes as $size) {
+    if ($size != 'x') {
+      $size_array = explode('x', trim($size));
+      $formatted_sizes[] = array_map('intval', $size_array);
+    }
+    else {
+      $formatted_sizes[] = array();
+    }
+  }
+
+  return (count($formatted_sizes) == 1) ? $formatted_sizes[0] : $formatted_sizes;
+}
+
+/**
+ * Get info user id author.
+ *
+ * @return: bool;
+ */
+function penton_custom_dfp_is_author() {
+  global $user;
+
+  if (preg_match('/(\d+)/i', $_GET['q'], $found)) {
+    $uid = array_shift($found);
+    $user_local = user_load($uid);
+    $use_user = ($user_local) ? $user_local : $user;
+  }
+
+  if (isset($use_user->roles) && in_array('author', $use_user->roles)) {
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Implements hook_init().
+ */
+function penton_custom_dfp_init() {
+  $path = $_GET['q'];
+
+  if (is_ajax()) {
+    return FALSE;
+  }
+
+  if (strpos($path, 'taxonomy') !== FALSE) {
+    penton_custom_dfp_initialization('taxonomy');
+  }
+  elseif (strpos($path, 'user') !== FALSE) {
+    if (penton_custom_dfp_is_author()) {
+      penton_custom_dfp_initialization('author');
+    }
+    else {
+      penton_custom_dfp_initialization('user');
+    }
+  }
+  elseif (strpos($path, 'search') !== FALSE) {
+    penton_custom_dfp_initialization('search');
+  }
+  else {
+    penton_custom_dfp_find_nodes();
+  }
+}
+
+/**
+ * Init dfp on node page.
+ */
+function penton_custom_dfp_find_nodes() {
+  $node = menu_get_object();
+
+  if (empty($node)) {
+    return;
+  }
+
+  $wrapper = entity_metadata_wrapper('node', $node);
+
+  switch ($node->type) {
+    case 'display_admin':
+      penton_custom_dfp_initialization('homepage');
+      break;
+
+    case 'page':
+      penton_custom_dfp_initialization('page');
+      break;
+
+    case 'article':
+      $type = $wrapper->field_penton_article_type->value();
+      $type = (is_array($type) && count($type)) ? array_shift($type) : array();
+
+      if (!empty($type) && $type->name == 'Gallery' && strpos($_GET['q'], 'gallery') !== FALSE) {
+        penton_custom_dfp_initialization('gallery');
+      }
+      else {
+        penton_custom_dfp_initialization('article');
+      }
+      break;
+
+    default:
+      penton_custom_dfp_initialization('article');
+  }
+}
+
+/**
+ * Initialization dfp js library.
+ */
+function penton_custom_dfp_initialization($type) {
+  $settings = array(
+    'dfp_tags' => penton_custom_dfp_parse_dfp_tags(),
+    'current_type' => $type,
+    'default_adunit' => variable_get('dfp_network_id', '') . '/' .  variable_get('dfp_tags_global_settings_site_id', ''),
+    'async_rendering' => variable_get('dfp_async_rendering', 1),
+    'single_request' => variable_get('dfp_single_request', 1),
+    'collapse_empty_divs' => variable_get('dfp_collapse_empty_divs', 1),
+    'viewport' => variable_get('dfp_tags_global_settings_viewport', 0),
+  );
+
+  drupal_add_js(($GLOBALS['is_https'] ? "https://" : "http://") . DFP_GOOGLE_TAG_SERVICES_URL);
+
+  drupal_add_js(drupal_get_path('module', 'penton_custom_dfp') . '/js/data-render.js');
+  drupal_add_js(drupal_get_path('module', 'penton_custom_dfp') . '/js/viewport.js');
+  drupal_add_js(drupal_get_path('module', 'penton_custom_dfp') . '/js/dfp.dom.js');
+  drupal_add_js(drupal_get_path('module', 'penton_custom_dfp') . '/js/dfp.iframe.js');
+
+  $json = json_encode($settings);
+  drupal_add_js("Drupal.settings.penton_custom_dfp = {$json};", 'inline');
+}

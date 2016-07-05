@@ -1,0 +1,325 @@
+<?php
+/**
+ * @file
+ * Manages Fulfillment Services.
+ */
+
+/**
+ * Implements hook_init().
+ */
+function penton_fulfillment_services_init() {
+  if (_penton_fulfillment_services_need_to_check_status()) {
+    module_load_include('inc', 'penton_fulfillment_services', 'includes/ESPWebServices.class');
+    penton_fulfillment_services_fulfillment_services_access();
+  }
+}
+
+/**
+ * Implements hook_permission().
+ */
+function penton_fulfillment_services_permission() {
+  return array(
+    'administer ESP Web Services configuration' => array(
+      'title' => t('Administer ESP Web Services configuration'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function penton_fulfillment_services_menu() {
+  $items['admin/config/people/fulfillment-services'] = array(
+    'title' => 'Fulfillment Services',
+    'description' => 'Configure Fulfillment Services',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_fulfillment_services_admin_settings'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer ESP Web Services configuration'),
+    'file' => 'penton_fulfillment_services.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Access callback for edit esp profile page.
+ */
+function penton_fulfillment_services_edit_esp_profile_access($account) {
+  return variable_get('esp_web_services_enable')
+    && module_exists('penton_user_permissions')
+    && penton_user_permissions_edit_account_access($account);
+}
+
+/**
+ * Form to edit user's ESP Web Service account number and zip code.
+ */
+function penton_fulfillment_services_profile_form($form, &$form_state) {
+  $account = _penton_fulfillment_services_get_current_user();
+
+  // During initial form build, add the entity to the form state for use during
+  // form building and processing. During a rebuild, use what is in the form
+  // state.
+  if (!isset($form_state['account'])) {
+    $form_state['account'] = $account;
+  }
+
+  $fields = _penton_fulfillment_services_fields_to_show($account);
+
+  $account_meta = entity_metadata_wrapper('user', $account);
+
+  $form['status'] = array(
+    '#type' => 'select',
+    '#title' => t('Status'),
+    '#options' => _penton_fulfillment_services_get_available_status(),
+    '#empty_option' => t('-'),
+    '#default_value' => $account_meta->field_penton_esp_status->value(),
+    '#disabled' => TRUE,
+  );
+
+  $form['account_number'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Account Number'),
+    '#default_value' => $account_meta->field_penton_esp_account_number->value(),
+  );
+  $form['zip_code'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Zip Code'),
+    '#default_value' => $account_meta->field_penton_esp_zip_code->value(),
+  );
+  if (in_array('account_type', $fields)) {
+    $form['account_type'] = array(
+      '#type' => 'select',
+      '#title' => t('Account Type'),
+      '#options' => array(
+        'S' => t('Complimentary'),
+        'C' => t('Trial'),
+        'R' => t('Paid'),
+        'unknown' => t('Unknown'),
+      ),
+      '#empty_option' => t('-'),
+      '#default_value' => $account_meta->field_penton_esp_account_type->value(),
+      '#disabled' => TRUE,
+    );
+  }
+  if (in_array('expire_date', $fields)) {
+    $expire_date = $account_meta->field_penton_esp_expire_date->value();
+    $form['expire_date'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Expire Date'),
+      '#default_value' => date('m/d/Y', $expire_date),
+      '#disabled' => TRUE,
+    );
+  }
+
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+  );
+
+  return $form;
+}
+
+/**
+ * Returns fields we need to show in esp profile form.
+ *
+ * Returns fields we need to show in esp profile form
+ * depending on account's subscription status.
+ */
+function _penton_fulfillment_services_fields_to_show($account) {
+  $account_meta = entity_metadata_wrapper('user', $account);
+  $status = $account_meta->field_penton_esp_status->value();
+
+  $fields = array(
+    'status',
+    'account_number',
+    'zip_code',
+  );
+  // Don't show account type and expire date
+  // if account number or zip code is empty.
+  if (!in_array($status, array('invalid', 'unlinked'))) {
+    $fields[] = 'account_type';
+    // Don't show expire date if account is cancelled.
+    if ($status != 'C') {
+      $fields[] = 'expire_date';
+    }
+  }
+  return $fields;
+}
+
+/**
+ * Submit callback for ESP related form.
+ */
+function penton_fulfillment_services_profile_form_submit($form, &$form_state) {
+  $account = $form_state['account'];
+
+  $account->field_penton_esp_account_number[LANGUAGE_NONE][0]['value'] = $form_state['values']['account_number'];
+  $account->field_penton_esp_zip_code[LANGUAGE_NONE][0]['value'] = $form_state['values']['zip_code'];
+
+  user_save($account);
+
+  $form_state['redirect'] = array(
+    'user/' . $account->uid,
+    array(
+      'fragment' => 'access-level',
+    ),
+  );
+}
+
+/**
+ * Checks if user has an ESP Web Services subscription.
+ *
+ * Checks if user has an ESP Web Services subscription
+ * based on account number and zip code
+ * and gives him a Paid Premium role if yes.
+ *
+ * @param object $account
+ *   User account to check.
+ *
+ * @return bool
+ *   TRUE if user has Premium subscription or FALSE otherwise.
+ */
+function penton_fulfillment_services_fulfillment_services_access($account = NULL) {
+  if (!variable_get('esp_web_services_enable')) {
+    return FALSE;
+  }
+
+  if (is_null($account)) {
+    $account = _penton_fulfillment_services_get_current_user();
+  }
+  if (empty($account)) {
+    // Looks like user is anonymous.
+    return FALSE;
+  }
+
+  $account_meta = entity_metadata_wrapper('user', $account);
+
+  $uid = $account_meta->field_penton_esp_account_number->value();
+  $upwd = $account_meta->field_penton_esp_zip_code->value();
+
+  $esp_web_services = ESPWebServices::getInstance();
+  // Checks if user has Premium subscription.
+  $result = $esp_web_services->verifyExistingUserLogonRequest($uid, $upwd);
+
+  if (!empty($result)) {
+    $user_roles = $account->roles;
+    if ($result['access_granted']) {
+      // Give Paid Premium role.
+      if (!user_has_role(PENTON_GATED_PAID_PREMIUM_RID, $account)) {
+        $user_roles += drupal_map_assoc(array(PENTON_GATED_PAID_PREMIUM_RID));
+        $account->roles = $user_roles;
+      }
+    }
+    else {
+      // Remove Paid Premium role.
+      if (user_has_role(PENTON_GATED_PAID_PREMIUM_RID, $account)) {
+        unset($user_roles[PENTON_GATED_PAID_PREMIUM_RID]);
+        $account->roles = $user_roles;
+      }
+    }
+    $account->field_penton_esp_account_number[LANGUAGE_NONE][0]['value'] = $uid;
+    $account->field_penton_esp_zip_code[LANGUAGE_NONE][0]['value'] = $upwd;
+
+    $result['status'] = !empty($uid) && !empty($upwd) ? $result['returncode'] == 0 ? 'invalid' : $result['status'] : 'unlinked';
+    $account->field_penton_esp_status[LANGUAGE_NONE][0]['value'] = $result['status'];
+
+    $result['accttype'] = !in_array($result['accttype'], array('C', 'R', 'S')) ? 'unknown' : $result['accttype'];
+    $account->field_penton_esp_account_type[LANGUAGE_NONE][0]['value'] = $result['accttype'];
+
+    $expire_date = $result['expiredate'];
+    $expire_date = strtotime("{$expire_date['year']}-{$expire_date['month']}-{$expire_date['day']}");
+    $account->field_penton_esp_expire_date[LANGUAGE_NONE][0]['value'] = $expire_date;
+
+    user_save($account);
+
+    return $result['access_granted'];
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * Returns account's esp related information.
+ */
+function penton_fulfillment_services_get_user_iformation($account = NULL) {
+  if (is_null($account)) {
+    $account = _penton_fulfillment_services_get_current_user();
+  }
+  if (empty($account)) {
+    return FALSE;
+  }
+
+  $account_meta = entity_metadata_wrapper('user', $account);
+
+  return array(
+    'has_access' => user_has_role(PENTON_GATED_PAID_PREMIUM_RID, $account),
+    'status' => _penton_fulfillment_services_get_available_status($account_meta->field_penton_esp_status->value()),
+    'account_number' => $account_meta->field_penton_esp_account_number->value(),
+    'zip_code' => $account_meta->field_penton_esp_zip_code->value(),
+    'expire_date' => date('m/d/Y', $account_meta->field_penton_esp_expire_date->value()),
+  );
+}
+
+/**
+ * Returns status name.
+ *
+ * Returns status name by status code
+ * or array with status names if no status code is given.
+ */
+function _penton_fulfillment_services_get_available_status($status_code = NULL) {
+  $statuses = array(
+    'A' => t('Active'),
+    'S' => t('Active Seed'),
+    'C' => t('Cancelled'),
+    'F' => t('Print Subscription Only'),
+    'H' => t('Credit Hold'),
+    'R' => t('Credit Rejected'),
+    'X' => t('Expired'),
+    'invalid' => t('Invalid'),
+    'I' => t('Pending Add Bank'),
+    'P' => t('Pending Credit'),
+    'unlinked' => t('Unlinked'),
+    'Z' => t('Purged'),
+  );
+
+  if (!is_null($status_code)) {
+    return array_key_exists($status_code, $statuses) ? $statuses[$status_code] : '-';
+  }
+  return $statuses;
+}
+
+/**
+ * Returns current user or current page user.
+ */
+function _penton_fulfillment_services_get_current_user() {
+  if (arg(0) == 'user' && is_numeric(arg(1)) && arg(1) > 0) {
+    return user_load(arg(1));
+  }
+  elseif (user_is_logged_in()) {
+    return $GLOBALS['user'];
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * Checks if we need to know if user has ESP Web Services subscription.
+ */
+function _penton_fulfillment_services_need_to_check_status() {
+  if (!variable_get('esp_web_services_enable') || user_is_anonymous()) {
+    return FALSE;
+  }
+
+  if (arg(0) == 'user' && is_numeric(arg(1))) {
+    return TRUE;
+  }
+
+  $node = menu_get_object();
+  if (!empty($node) && $node->type == 'article') {
+    return $node->field_penton_privacy_settings[LANGUAGE_NONE][0]['value'] == PENTON_GATED_PAID_PREMIUM_RID;
+  }
+
+  return FALSE;
+}

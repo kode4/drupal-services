@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Media Entity feature.
+ */
+
+include_once 'penton_media_entity.features.inc';

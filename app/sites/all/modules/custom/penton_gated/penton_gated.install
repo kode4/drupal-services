@@ -1,0 +1,36 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the Penton Gated module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function penton_gated_install() {
+  $gated_roles = array(
+    PENTON_GATED_ADVANCED_RID => 'advanced registered user',
+    PENTON_GATED_PAID_PREMIUM_RID => 'paid premium',
+  );
+  foreach ($gated_roles as $gated_rid => $gated_role_name) {
+    $rid = db_insert('role')
+      ->fields(array('name' => $gated_role_name, 'weight' => $gated_rid - 1))
+      ->execute();
+    // Sanity check to ensure role id match the constant we defined.
+    if ($rid != $gated_rid) {
+      db_update('role')
+        ->fields(array('rid' => $gated_rid))
+        ->condition('rid', $rid)
+        ->execute();
+    }
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function penton_gated_uninstall() {
+  user_role_delete('advanced registered user');
+  user_role_delete('paid premium');
+}

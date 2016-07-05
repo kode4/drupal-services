@@ -1,0 +1,150 @@
+<?php
+/**
+ * @file
+ * Penton user permissions module.
+ */
+
+/**
+ * Implements hook_theme().
+ */
+function penton_user_permissions_theme(&$variables) {
+  $items = array();
+  // TODO: add ability to nest this templates in subthemes.
+  $theme_modal_path = drupal_get_path('theme', 'penton_core_theme') . '/templates/modals';
+  $items['penton_user_permissions_validation_prompt_form'] = array(
+    'render element' => 'form',
+    'path' => $theme_modal_path,
+    'template' => 'penton-modal-validation-prompt',
+  );
+  $items['penton_user_permissions_validation_thank_you_form'] = array(
+    'render element' => 'form',
+    'path' => $theme_modal_path,
+    'template' => 'penton-modal-validation-thank-you',
+  );
+  return $items;
+}
+
+/**
+ * Checks if user can edit profile account.
+ */
+function penton_user_permissions_edit_account_access($account = NULL) {
+  global $user;
+  $account = (!isset($account->uid)) ? $user : $account;
+  return ((($user->uid == $account->uid) && !user_has_role(PENTON_USER_UNVERIFIED_RID, $account))
+    || user_access('administer users'))
+    && $account->uid > 0;
+}
+
+/**
+ * Checks if user is verified.
+ */
+function penton_user_permissions_is_verified($account = NULL) {
+  global $user;
+  $account = is_null($account) ? $user : $account;
+  return !user_has_role(PENTON_USER_UNVERIFIED_RID, $account);
+}
+
+/**
+ * Returns user edit link.
+ */
+function penton_user_permissions_get_user_edit_link($text, $options = array()) {
+  global $user;
+  $path = "/user/$user->uid";
+  if ($user->uid == '1') {
+    $path .= '/edit';
+  }
+  $options = is_array($options) ? $options : array();
+
+  if (!empty($options['attributes']['class']) && !is_array($options['attributes']['class'])) {
+    $options['attributes']['class'] = array($options['attributes']['class']);
+  }
+
+  if (!penton_user_permissions_edit_account_access()) {
+    $path = '/penton_modal/ajax/validation/prompt';
+
+    $options['attributes']['class'][] = 'ctools-use-modal';
+    $options['attributes']['class'][] = 'ctools-modal-modal-popup-validation-prompt';
+    $options['attributes']['rel'] = 'nofollow';
+  }
+
+  return l($text, $path, $options);
+}
+
+/**
+ * Implements hook_preprocess_comment_wrapper().
+ */
+function penton_user_permissions_preprocess_comment_wrapper(&$variables) {
+  $variables['verified'] = penton_user_permissions_is_verified();
+  $variables['verify_link'] = l(t('Verify your account to comment'), '/penton_modal/ajax/validation/prompt/comment', array(
+      'attributes' => array(
+        'class' => array(
+          'verify-link',
+          'ctools-use-modal',
+          'ctools-modal-modal-popup-validation-prompt',
+        ),
+        'rel' => 'nofollow',
+      ),
+    )
+  );
+}
+
+/**
+ * Form for validate page in user edit form.
+ */
+function penton_user_permissions_validation_prompt_form($form, &$form_state) {
+  global $user;
+  $form['user_mail'] = array(
+    '#markup' => $user->mail,
+  );
+  $form['action_text'] = array(
+    '#markup' => $form_state['type'] == 'comment' ?
+    t('Please verify your account to comment on the site.') :
+    t('Please verify your account before editing your information.'),
+  );
+
+  $form['request_validation_link'] = array(
+    '#type' => 'link',
+    '#title' => t('Request a validation email'),
+    '#href' => ('/penton_modal/ajax/validation/thank_you'),
+    '#attributes' => array(
+      'class' => array(
+        'ctools-use-modal',
+        'ctools-modal-modal-popup-validation-prompt',
+      ),
+      'rel' => 'nofollow',
+    ),
+  );
+  penton_user_permissions_contact_service_form($form);
+
+  unset($form['buttons']);
+  return $form;
+}
+
+/**
+ * Form for thank you page in user edit form.
+ */
+function penton_user_permissions_validation_thank_you_form($form, &$form_state) {
+  global $user;
+
+  // Send validation email.
+  _user_mail_notify('register_no_approval_required', $user);
+
+  $form['user_mail'] = array(
+    '#markup' => $user->mail,
+  );
+  penton_user_permissions_contact_service_form($form);
+
+  unset($form['buttons']);
+  return $form;
+}
+
+/**
+ * Helper form for contact service link.
+ */
+function penton_user_permissions_contact_service_form(&$form) {
+  $form['contact_service'] = array(
+    '#type' => 'link',
+    '#title' => t('contact customer service'),
+    '#href' => ('mailto:usercare@penton.com'),
+  );
+}

@@ -1,0 +1,52 @@
+<?php
+/**
+ * @file
+ * Installs the module Penton Feeds Aggregator.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function penton_feeds_aggregator_schema() {
+
+  $schema = array();
+  $schema['penton_feeds_aggregator_node_expire'] = array(
+    'description' => 'Stores expire date of the feed item, as a Unix timestamp.',
+    'fields' => array(
+      'nid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The {node}.nid of the feed item.',
+      ),
+      'expired' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Expire date of the feed item, as a Unix timestamp.',
+      ),
+    ),
+    'primary key' => array('nid'),
+  );
+
+  $schema['penton_feeds_aggregator_last_import'] = array(
+    'description' => 'Stores last import date of the the feed',
+    'fields' => array(
+      'feed_nid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The {node}.nid of the feed',
+      ),
+      'last_import' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Last import date of the the feed, as a Unix timestamp.',
+      ),
+    ),
+    'primary key' => array('feed_nid'),
+  );
+
+  return $schema;
+}

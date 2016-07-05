@@ -1,0 +1,58 @@
+<?php
+/**
+ * @file
+ * Install functions for the article type taxonomy.
+ *
+ * This module must run after the article type feature.
+ */
+
+/**
+ * Implements hook_enable().
+ *
+ * Runs after install and adds in the terms taken from legacy system.
+ *
+ * @author James Linnell james.linnell@ixxus.com
+ */
+function penton_taxonomy_generate_enable() {
+  // Article Type generate.
+  $article_type_terms = array(
+    'Article',
+    'Gallery',
+    'Audio',
+    'Video',
+    'Webinar',
+    'Data Table',
+    'White Paper',
+    'Link',
+  );
+
+  // Get the vid of the vocabulary.
+  $article_type_vocab = taxonomy_vocabulary_machine_name_load('article_type');
+
+  // Create a new term for each.
+  foreach ($article_type_terms as $item) {
+    $term = new stdClass();
+    $term->name = $item;
+    $term->vid = $article_type_vocab->vid;
+    taxonomy_term_save($term);
+  }
+
+  // Page Type generate.
+  // Based on content model v.5.0
+  $page_type_terms = array(
+    'standard page',
+    'zmag',
+  );
+
+  // Get the vid of the vocabulary.
+  $page_type_vocab = taxonomy_vocabulary_machine_name_load('page_type');
+
+  // Create a new term for each.
+  foreach ($page_type_terms as $item) {
+    $term = new stdClass();
+    $term->name = $item;
+    $term->vid = $page_type_vocab->vid;
+    taxonomy_term_save($term);
+  }
+
+}

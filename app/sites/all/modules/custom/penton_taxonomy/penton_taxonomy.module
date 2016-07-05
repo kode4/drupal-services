@@ -1,0 +1,52 @@
+<?php
+
+/**
+ * @file
+ * Alters default taxonomy to match Penton requirements: field names and types
+ * associated to terms.
+ */
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function penton_taxonomy_form_taxonomy_form_term_alter(&$form, &$form_state, $form_id) {
+  // Remove description field as we don't use it.
+  $form['description']['#access'] = FALSE;
+
+  // Change name field to "Title/Headline"
+  $form['name']['#title'] = "Title/headline";
+
+  // Remove ecommerce related tokens if ecommerce feature is disabled.
+  if (!module_exists('penton_vela')) {
+    $form['metatags'][LANGUAGE_NONE]['description']['value']['#default_value'] = str_replace(
+      array(
+        '[term:field_topic_term_description]',
+        '[term:field_prod_type_term_description]',
+      ),
+      '',
+      $form['metatags'][LANGUAGE_NONE]['description']['value']['#default_value']
+    );
+    $form['metatags'][LANGUAGE_NONE]['description']['default']['#value'] = str_replace(
+      array(
+        '[term:field_topic_term_description]',
+        '[term:field_prod_type_term_description]',
+      ),
+      '',
+      $form['metatags'][LANGUAGE_NONE]['description']['default']['#value']
+    );
+  }
+}
+
+/**
+ * Implements hook_menu_alter().
+ *
+ * We will keep using default taxonomy term page mechanism, but adjusted to
+ * Penton needs.
+ */
+function penton_taxonomy_menu_alter(&$items) {
+  if (!empty($items['taxonomy/term/%taxonomy_term'])) {
+    $items['taxonomy/term/%taxonomy_term']['page callback'] = 'penton_taxonomy_term_page';
+    $items['taxonomy/term/%taxonomy_term']['file'] = 'penton_taxonomy.pages.inc';
+    $items['taxonomy/term/%taxonomy_term']['file path'] = drupal_get_path('module', 'penton_taxonomy');
+  }
+}

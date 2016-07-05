@@ -1,0 +1,532 @@
+<?php
+/**
+ * @file
+ * Handles the modal forms for Penton, based on CTools.
+ */
+
+/**
+ * Define parameters for small modal windows.
+ */
+define('PENTON_MODAL_POPUP_SMALL_TYPE', 'fixed');
+define('PENTON_MODAL_POPUP_SMALL_WIDTH', 300);
+define('PENTON_MODAL_POPUP_SMALL_HEIGHT', 300);
+
+/**
+ * Define parameters for medium modal windows.
+ */
+define('PENTON_MODAL_POPUP_MEDIUM_TYPE', 'fixed');
+define('PENTON_MODAL_POPUP_MEDIUM_WIDTH', 550);
+define('PENTON_MODAL_POPUP_MEDIUM_HEIGHT', 450);
+
+/**
+ * Define parameters for large modal windows.
+ */
+define('PENTON_MODAL_POPUP_LARGE_TYPE', 'scale');
+define('PENTON_MODAL_POPUP_LARGE_WIDTH', 0.8);
+define('PENTON_MODAL_POPUP_LARGE_HEIGHT', 0.8);
+
+/**
+ * Define opacity for modal windows.
+ */
+define('PENTON_MODAL_POPUP_OPACITY', 0.5);
+
+/**
+ * Define theme for modal windows.
+ */
+define('PENTON_MODAL_POPUP_THEME', 'PentonModalPopup');
+define('PENTON_MODAL_POPUP_THEME_VALIDATION_PROMPT', 'PentonModalPopupValidationPrompt');
+
+/**
+ * Define background color for modal windows.
+ */
+define('PENTON_MODAL_POPUP_BACKGROUND_COLOR', '#000');
+
+/**
+ * Implementation of hook init().
+ */
+function penton_modal_init() {
+  // If the path leads to the wizard.
+  if (drupal_match_path($_GET['q'], 'penton_modal/nojs/*')) {
+    // Set cache to false.
+    $GLOBALS['conf']['cache'] = FALSE;
+  }
+  _penton_modal_doheader();
+}
+
+/**
+ * Implements hook_menu().
+ */
+function penton_modal_menu() {
+  // Make the forward form modal.
+  $items['penton_modal/%ctools_js/forward/%/%'] = array(
+    'title' => variable_get('forward_email_title', 'Forward this page to a friend'),
+    'page callback' => 'penton_modal_forward_wizard',
+    'page arguments' => array(1, 3, 4),
+    'access callback' => TRUE,
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+  // Make the log in form modal.
+  $items['penton_modal/%ctools_js/login'] = array(
+    'title' => 'Log in',
+    'page callback' => 'penton_modal_login',
+    'page arguments' => array(1),
+    'access callback' => TRUE,
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+  // Make the password form modal.
+  $items['penton_modal/%ctools_js/password'] = array(
+    'title' => 'Forgot password',
+    'page callback' => 'penton_modal_password',
+    'page arguments' => array(1),
+    'access callback' => TRUE,
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+  // Make the advanced register form modal.
+  $items['penton_modal/%ctools_js/register/%'] = array(
+    'title' => 'Register',
+    'page callback' => 'penton_modal_advanced_register_wizard',
+    'page arguments' => array(1, 3),
+    'access callback' => TRUE,
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+  // Make the basic register form modal.
+  $items['penton_modal/%ctools_js/basic_register'] = array(
+    'title' => 'Register now',
+    'page callback' => 'penton_modal_basic_register_wizard',
+    'page arguments' => array(1),
+    'access callback' => TRUE,
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+  // Add optional registration to print. Last argument is a node. Do not use
+  // menu magic to load node here because print doesn't need it.
+  $items['penton_modal/%ctools_js/print/%'] = array(
+    'title' => 'Print this page',
+    'page callback' => 'penton_modal_print_wizard',
+    'page arguments' => array(1, 3),
+    'access arguments' => array('access print'),
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['penton_modal/%ctools_js/logout/%'] = array(
+    'title' => 'Logout',
+    'page callback' => 'penton_modal_email_this_logout',
+    'page arguments' => array(1, 3),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  $items['penton_modal/%ctools_js/switch/%'] = array(
+    'title' => 'Logout',
+    'page callback' => 'penton_modal_switch_account',
+    'page arguments' => array(1, 3),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  // Modal newsletters list.
+  $items['penton_modal/%ctools_js/nl_list'] = array(
+    'title' => 'Newsletters list',
+    'page callback' => 'penton_modal_newsletter_list',
+    'page arguments' => array(1),
+    'access callback' => TRUE,
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+  // Modal advanced questions.
+  $items['penton_modal/%ctools_js/advanced/%'] = array(
+    'title' => 'One quick thing',
+    'page callback' => 'penton_modal_advanced_questions',
+    'page arguments' => array(1, 3),
+    'access callback' => TRUE,
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+  // Make user edit profile prompt to validate account.
+  $items['penton_modal/%ctools_js/validation/%'] = array(
+    'title' => '',
+    'page callback' => 'penton_modal_validation_wizard',
+    'page arguments' => array(1, 3),
+    'access callback' => TRUE,
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['penton_modal/%ctools_js/validation/%/%'] = array(
+    'title' => '',
+    'page callback' => 'penton_modal_validation_wizard',
+    'page arguments' => array(1, 3, 4),
+    'access callback' => TRUE,
+    'file' => 'penton_modal.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['admin/config/system/penton_modal/configure'] = array(
+    'title' => 'Penton Modal',
+    'description' => 'Customize the copy on user registration and upgrade modal screens',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_modal_admin'),
+    'access arguments' => array('administer Penton modal settings'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Returns an admin form.
+ */
+function penton_modal_admin() {
+  $form = array();
+
+  $form['penton_modal_reg_form'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Settings for step 1 of advanced registration form'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $form['penton_modal_reg_form']['penton_modal_reg_form_header'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Registration Form Header'),
+    '#default_value' => variable_get('penton_modal_reg_form_header', 'Register now'),
+    '#maxlength' => 255,
+    '#description' => t('Header'),
+  );
+  $form['penton_modal_reg_form']['penton_modal_reg_form_descr'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Registration Form Descriptive Text'),
+    '#default_value' => variable_get('penton_modal_reg_form_descr', ''),
+    '#description' => t('Descriptive text'),
+  );
+  $form['penton_modal_newsletter'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Settings for newsletter step of advanced registration form'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $form['penton_modal_newsletter']['penton_modal_nws_form_header'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Newsletter Form Header'),
+    '#default_value' => variable_get('penton_modal_nws_form_header', 'Thanks for subscribing.'),
+    '#maxlength' => 255,
+    '#description' => t('Header'),
+  );
+  $form['penton_modal_newsletter']['penton_modal_nws_form_descr'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Newsletter Form Descriptive Text'),
+    '#default_value' => variable_get('penton_modal_nws_form_descr', ''),
+    '#description' => t('Descriptive text'),
+  );
+  $form['penton_modal_tkli_form'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Settings for TKLI step of advanced registration form'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $form['penton_modal_tkli_form']['penton_modal_tkli_form_header'] = array(
+    '#type' => 'textfield',
+    '#title' => t('TKLI Form Header'),
+    '#default_value' => variable_get('penton_modal_tkli_form_header', ''),
+    '#maxlength' => 255,
+    '#description' => t('Header'),
+  );
+  $form['penton_modal_tkli_form']['penton_modal_tkli_form_descr'] = array(
+    '#type' => 'textfield',
+    '#title' => t('TKLI Form Descriptive Text'),
+    '#default_value' => variable_get('penton_modal_tkli_form_descr', ''),
+    '#description' => t('Descriptive text'),
+  );
+  $form['penton_modal_ty_form'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Settings for TY-screen'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $form['penton_modal_ty_form']['penton_modal_ty_form_header'] = array(
+    '#type' => 'textfield',
+    '#title' => t('TY-screen Form Header'),
+    '#default_value' => variable_get('penton_modal_ty_form_header', 'Thank you for registering!'),
+    '#maxlength' => 255,
+    '#description' => t('Header'),
+  );
+  $form['penton_modal_ty_form']['penton_modal_ty_form_descr'] = array(
+    '#type' => 'textfield',
+    '#title' => t('TY-screen Form Descriptive Text'),
+    '#default_value' => variable_get('penton_modal_ty_form_descr', ''),
+    '#description' => t('Descriptive text'),
+  );
+  $form['penton_modal_basic_reg_form'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Settings for Basic registration form'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $form['penton_modal_basic_reg_form']['penton_modal_basic_reg_form_header'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Basic Registration Form Header'),
+    '#default_value' => variable_get('penton_modal_basic_reg_form_header', ''),
+    '#maxlength' => 255,
+    '#description' => t('Header'),
+  );
+  $form['penton_modal_basic_reg_form']['penton_modal_basic_reg_form_descr'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Basic Registration Form Descriptive Text'),
+    '#default_value' => variable_get('penton_modal_basic_reg_form_descr', ''),
+    '#description' => t('Descriptive text'),
+  );
+  $form['penton_modal_upgrade_acc_form'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Settings for Upgrade Account form'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $form['penton_modal_upgrade_acc_form']['penton_modal_upgrade_acc_form_header'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Upgrade Account Form Header'),
+    '#default_value' => variable_get('penton_modal_upgrade_acc_form_header', ''),
+    '#maxlength' => 255,
+    '#description' => t('Header'),
+  );
+  $form['penton_modal_upgrade_acc_form']['penton_modal_upgrade_acc_form_descr'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Upgrade Account Form Descriptive Text'),
+    '#default_value' => variable_get('penton_modal_upgrade_acc_form_descr', ''),
+    '#description' => t('Descriptive text'),
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Implements hook_node_view_alter().
+ */
+function penton_modal_node_view_alter(&$build) {
+  // Alter link provided by forward module.
+  if (isset($build['links']['forward'])) {
+    $build['links']['forward']['#links']['forward_link']['href'] = 'penton_modal/nojs/forward';
+    $build['links']['forward']['#links']['forward_link']['attributes']['class'][] = 'ctools-use-modal ctools-modal-modal-popup-basic';
+    $build['links']['forward']['#links']['forward_link']['attributes']['rel'] = 'nofollow';
+  }
+  // Do not alter print link if user is logged in.
+  if (user_is_anonymous() && isset($build['links']['print_html'])) {
+    $build['links']['print_html']['#links']['print_html']['href'] = 'penton_modal/nojs/' . $build['links']['print_html']['#links']['print_html']['href'];
+    $build['links']['print_html']['#links']['print_html']['attributes']['class'][] = 'ctools-use-modal ctools-modal-modal-popup-medium';
+    $build['links']['print_html']['#links']['print_html']['attributes']['rel'] = 'nofollow';
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function penton_modal_form_alter(&$form, &$form_state, $form_id) {
+  if (arg(0) && arg(0) == 'penton_modal') {
+    $forms_in_wizard = array(
+      'user_register_form',
+      'penton_user_register_advanced_form',
+      'penton_user_register_basic_form',
+      'penton_user_register_email_this_form',
+      'forward_form',
+    );
+    if (in_array($form_id, $forms_in_wizard)) {
+      // Do not display the regular submit button in this context.
+      unset($form['actions']);
+    }
+    $single_list_forms = array(
+      'penton_newsletter_manager_newsletters_subscribe_form_full',
+    );
+    if (in_array($form_id, $single_list_forms) && empty($form_state['single_list'])) {
+      // Do not display the regular submit button in this context.
+      unset($form['actions']);
+    }
+
+    if (!empty($form_state['reload_after_close'])) {
+      $form['#attributes']['class'][] = 'penton_modal_reload_after_close';
+    }
+
+    $modal_forms = array(
+      'penton_user_register_advanced_form',
+      'penton_user_register_basic_form',
+      'penton_user_register_email_this_form',
+      'penton_newsletter_manager_newsletters_subscribe_form_full',
+    );
+    if (in_array($form_id, $modal_forms)) {
+      $form['buttons']['next']['#attributes']['class'][] = 'modal-register-btn';
+    }
+    if ($form_id == 'penton_newsletter_manager_newsletters_subscribe_form_full') {
+      $form['buttons']['next']['#value'] = t('Subscribe');
+      $form['buttons']['return']['#attributes']['class'][] = 'modal-register-btn';
+    }
+    if ($form_id == 'penton_user_register_thank_you_form') {
+      $form['buttons']['return']['#attributes']['class'][] = 'modal-register-btn';
+    }
+  }
+}
+
+/**
+ * Loads the various js and css files.
+ */
+function _penton_modal_doheader() {
+  static $already_added = FALSE;
+  if ($already_added) {
+    // Don't add the JavaScript and CSS multiple times.
+    return;
+  }
+
+  // Include the CTools tools that we need.
+  ctools_include('ajax');
+  ctools_include('modal');
+
+  // Add CTools' javascript to the page.
+  ctools_modal_add_js();
+
+  $js_settings = array(
+    'modal-popup-small' => array(
+      'modalSize' => array(
+        'type' => PENTON_MODAL_POPUP_SMALL_TYPE,
+        'width' => PENTON_MODAL_POPUP_SMALL_WIDTH,
+        'height' => PENTON_MODAL_POPUP_SMALL_HEIGHT,
+      ),
+      'modalOptions' => array(
+        'opacity' => PENTON_MODAL_POPUP_OPACITY,
+        'background' => PENTON_MODAL_POPUP_BACKGROUND_COLOR,
+      ),
+      'animation' => 'fadeIn',
+      'modalTheme' => PENTON_MODAL_POPUP_THEME,
+    ),
+    'modal-popup-medium' => array(
+      'modalSize' => array(
+        'type' => PENTON_MODAL_POPUP_MEDIUM_TYPE,
+        'width' => PENTON_MODAL_POPUP_MEDIUM_WIDTH,
+        'height' => PENTON_MODAL_POPUP_MEDIUM_HEIGHT,
+      ),
+      'modalOptions' => array(
+        'opacity' => PENTON_MODAL_POPUP_OPACITY,
+        'background' => PENTON_MODAL_POPUP_BACKGROUND_COLOR,
+      ),
+      'animation' => 'fadeIn',
+      'modalTheme' => PENTON_MODAL_POPUP_THEME,
+    ),
+    'modal-popup-large' => array(
+      'modalSize' => array(
+        'type' => PENTON_MODAL_POPUP_LARGE_TYPE,
+        'width' => PENTON_MODAL_POPUP_LARGE_WIDTH,
+        'height' => PENTON_MODAL_POPUP_LARGE_HEIGHT,
+      ),
+      'modalOptions' => array(
+        'opacity' => PENTON_MODAL_POPUP_OPACITY,
+        'background' => PENTON_MODAL_POPUP_BACKGROUND_COLOR,
+      ),
+      'animation' => 'fadeIn',
+      'modalTheme' => PENTON_MODAL_POPUP_THEME,
+    ),
+    'modal-popup-basic' => array(
+      'modalSize' => array(
+        'type' => PENTON_MODAL_POPUP_MEDIUM_TYPE,
+        'width' => PENTON_MODAL_POPUP_MEDIUM_WIDTH,
+        'height' => PENTON_MODAL_POPUP_MEDIUM_HEIGHT,
+      ),
+      'modalOptions' => array(
+        'opacity' => PENTON_MODAL_POPUP_OPACITY,
+        'background' => PENTON_MODAL_POPUP_BACKGROUND_COLOR,
+      ),
+      'animation' => 'fadeIn',
+      'modalTheme' => PENTON_MODAL_POPUP_THEME . 'Basic',
+    ),
+    'modal-popup-basic-email' => array(
+      'modalSize' => array(
+        'type' => PENTON_MODAL_POPUP_MEDIUM_TYPE,
+        'width' => PENTON_MODAL_POPUP_MEDIUM_WIDTH,
+        'height' => PENTON_MODAL_POPUP_MEDIUM_HEIGHT,
+      ),
+      'modalOptions' => array(
+        'opacity' => PENTON_MODAL_POPUP_OPACITY,
+        'background' => PENTON_MODAL_POPUP_BACKGROUND_COLOR,
+      ),
+      'animation' => 'fadeIn',
+      'modalTheme' => PENTON_MODAL_POPUP_THEME . 'BasicEmail',
+    ),
+    'modal-popup-advanced' => array(
+      'modalSize' => array(
+        'type' => PENTON_MODAL_POPUP_MEDIUM_TYPE,
+        'width' => PENTON_MODAL_POPUP_MEDIUM_WIDTH,
+        'height' => PENTON_MODAL_POPUP_MEDIUM_HEIGHT,
+      ),
+      'modalOptions' => array(
+        'opacity' => PENTON_MODAL_POPUP_OPACITY,
+        'background' => PENTON_MODAL_POPUP_BACKGROUND_COLOR,
+      ),
+      'animation' => 'fadeIn',
+      'modalTheme' => PENTON_MODAL_POPUP_THEME . 'Advanced',
+    ),
+    'modal-popup-login' => array(
+      'modalSize' => array(
+        'type' => PENTON_MODAL_POPUP_SMALL_TYPE,
+        'width' => 545,
+        'height' => 485,
+      ),
+      'modalOptions' => array(
+        'opacity' => PENTON_MODAL_POPUP_OPACITY,
+        'background' => PENTON_MODAL_POPUP_BACKGROUND_COLOR,
+      ),
+      'animation' => 'fadeIn',
+      'modalTheme' => PENTON_MODAL_POPUP_THEME . 'Login',
+    ),
+    'modal-popup-legal-comm' => array(
+      'modalSize' => array(
+        'type' => PENTON_MODAL_POPUP_SMALL_TYPE,
+        'width' => PENTON_MODAL_POPUP_SMALL_WIDTH,
+        'height' => PENTON_MODAL_POPUP_SMALL_HEIGHT,
+      ),
+      'modalOptions' => array(
+        'opacity' => PENTON_MODAL_POPUP_OPACITY,
+        'background' => PENTON_MODAL_POPUP_BACKGROUND_COLOR,
+      ),
+      'animation' => 'fadeIn',
+      'closeText' => t('Close'),
+      'modalTheme' => PENTON_MODAL_POPUP_THEME . 'LegalComm',
+    ),
+    'modal-popup-validation-prompt' => array(
+      'modalSize' => array(
+        'type' => PENTON_MODAL_POPUP_SMALL_TYPE,
+        'width' => floatval(PENTON_MODAL_POPUP_SMALL_WIDTH),
+        'height' => floatval(PENTON_MODAL_POPUP_SMALL_HEIGHT),
+      ),
+      'modalOptions' => array(
+        'opacity' => floatval(PENTON_MODAL_POPUP_OPACITY),
+        'background' => PENTON_MODAL_POPUP_BACKGROUND_COLOR,
+      ),
+      'animation' => 'fadeIn',
+      'closeText' => t('Close'),
+      'modalTheme' => PENTON_MODAL_POPUP_THEME_VALIDATION_PROMPT,
+    ),
+  );
+
+  drupal_add_js($js_settings, 'setting');
+
+  // Add wrapper to modal forms.
+  $path = drupal_get_path('module', 'penton_modal');
+  drupal_add_js($path . '/js/penton_modal_popup.js', array('weight' => -20));
+
+  $already_added = TRUE;
+}
+
+/**
+ * Callback function for switch account ajax link.
+ */
+function penton_modal_switch_account($js = NULL, $nid = NULL) {
+  ctools_include('ajax');
+  session_destroy();
+  module_load_include('inc', 'penton_modal', 'penton_modal.pages');
+  penton_modal_login($js, TRUE);
+}
+
+/**
+ * Callback function for logout ajax link.
+ */
+function penton_modal_email_this_logout($js = NULL, $nid = NULL) {
+  ctools_include('ajax');
+  session_destroy();
+  module_load_include('inc', 'penton_modal', 'penton_modal.pages');
+  penton_modal_forward_wizard($js, $nid, 1);
+}

@@ -1,0 +1,9 @@
+name = Penton Development settings
+core = 7.x
+package = Penton Dev Features
+version = 7.x-1.1-dev
+dependencies[] = backup_migrate
+dependencies[] = ctools
+features[backup_migrate_profiles][] = default
+features[ctools][] = backup_migrate:backup_migrate_exportables:1
+features[features_api][] = api:2

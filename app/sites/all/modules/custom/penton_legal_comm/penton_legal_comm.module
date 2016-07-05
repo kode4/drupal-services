@@ -1,0 +1,412 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Legal Communication functions
+ */
+
+define('PENTON_LEGAL_COMM_COUNT_DISPLAY', 2);
+define('PENTON_LEGAL_COMM_EXPIRES_COOKIE', 31536000);
+define('PENTON_LEGAL_COMM_GLOBAL_NAME', 'penton_legal_comm_status');
+
+/**
+ * Implements hook_theme().
+ */
+function penton_legal_comm_theme() {
+  $arguments = array(
+    'nid' => 0,
+    'title' => '',
+    'description' => '',
+    'acknowled' => '0',
+  );
+
+  return array(
+    'legal_message' => array(
+      'template' => 'templates/message',
+      'variables' => array(
+        'legal_comm_data' => $arguments,
+      ),
+    ),
+    'legal_popup' => array(
+      'template' => 'templates/pop-up',
+      'variables' => array(
+        'legal_comm_data' => $arguments,
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function penton_legal_comm_menu() {
+  $items = array();
+
+  $items['ajax/penton-legal-comm'] = array(
+    'title' => 'Penton Legal Communication confirm AJAX callback',
+    'page callback' => 'penton_legal_comm_ajax_confirm',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['ajax/penton-legal-comm-get-message'] = array(
+    'title' => 'Penton Legal Communication confirm AJAX callback',
+    'page callback' => 'penton_legal_comm_ajax_get_message',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['ajax/penton-legal-comm-count'] = array(
+    'title' => 'Penton Legal Communication counting AJAX callback',
+    'page callback' => 'penton_legal_comm_ajax_count',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_init().
+ */
+function penton_legal_comm_init() {
+  if (!path_is_admin(current_path()) && user_is_logged_in()) {
+    penton_legal_comm_initialize();
+  }
+}
+
+/**
+ * Implements hook_preprocess_region().
+ */
+function penton_legal_comm_preprocess_region(&$variables) {
+  drupal_add_js(drupal_get_path('module', 'penton_legal_comm') . '/js/alert.js', array('group' => JS_THEME));
+  drupal_add_js(drupal_get_path('module', 'penton_legal_comm') . '/js/client.js', array('group' => JS_THEME));
+
+  if (isset($variables['region']) && $variables['region'] == 'header' && penton_legal_comm_is_message()) {
+    $variables['legal_comm_message'] = penton_legal_comm_get_message();
+  }
+}
+
+/**
+ * Implements hook_preprocess_html().
+ */
+function penton_legal_comm_preprocess_html(&$variables) {
+  if (penton_legal_comm_is_message()) {
+    $variables['classes_array'][] = "js-legal-comm-message-show";
+  }
+}
+
+/**
+ * Implements hook_user_login().
+ */
+function penton_legal_comm_user_login(&$edit, $account) {
+  $legal_cookies = penton_legal_comm_get_user_cookies();
+
+  if (!empty($legal_cookies)) {
+    $user_data = (isset($account->data['legal'])) ? $account->data['legal'] : array();
+
+    foreach ($legal_cookies as $nid => $data) {
+      if (!isset($user_data[$nid])) {
+        $user_data[$nid] = $data;
+      }
+    }
+
+    user_save($account, array('data' => array('legal' => $user_data)));
+  }
+
+  penton_legal_comm_user_cookie_delete();
+}
+
+
+/**
+ * Implements hook_user_logout().
+ */
+function penton_legal_comm_user_logout($account) {
+  penton_legal_comm_user_cookie_delete();
+}
+
+/**
+ * AJAX callbeck update confirm status.
+ */
+function penton_legal_comm_ajax_confirm() {
+  $nid = (isset($_POST['nid'])) ? $_POST['nid'] : 0;
+
+  if ($nid) {
+    $data = penton_lagel_comm_legal_load($nid);
+
+    if (isset($data['nid'])) {
+      $data['confirm'] = 1;
+      $data['date'] = time();
+      penton_lagel_comm_legal_save($data);
+    }
+  }
+}
+
+/**
+ * AJAX callbeck update count show.
+ */
+function penton_legal_comm_ajax_count() {
+  $nid = (isset($_POST['nid'])) ? $_POST['nid'] : 0;
+
+  if ($nid) {
+    $data = penton_lagel_comm_legal_load($nid);
+
+    if (isset($data['nid'])) {
+      $data['count'] = $data['count'] + 1;
+      penton_lagel_comm_legal_save($data);
+    }
+  }
+}
+
+/**
+ * AJAX callbeck get legal communication message.
+ */
+function penton_legal_comm_ajax_get_message() {
+  penton_legal_comm_initialize();
+
+  if (penton_legal_comm_is_message()) {
+    echo penton_legal_comm_get_message();
+  }
+}
+
+/**
+ * Get legal communication confirmed messages.
+ *
+ * @return array
+ *   data with message where key is nid
+ */
+function penton_legal_comm_get_confirmed_message() {
+  $data = array();
+  $source = penton_lagel_comm_legals_load();
+
+  foreach ($source as $nid => $value) {
+    if (isset($value['confirm']) && $value['confirm'] == 1) {
+      $data[$nid] = $value;
+    }
+  }
+
+  return $data;
+}
+
+/**
+ * Get message data.
+ *
+ * @return int|false
+ *   nid
+ */
+function penton_legal_comm_get_message_data() {
+  static $data;
+
+  if (!isset($data)) {
+    $exclude_message = penton_legal_comm_get_confirmed_message();
+
+    $query = db_select('node', 'n');
+    $query->join('field_data_field_penton_block_type', 't', 'n.nid = t.entity_id');
+
+    $query->fields('t', array('field_penton_block_type_value'))
+      ->fields('n', array('nid'))
+      ->condition('t.field_penton_block_type_value', 'legal', '=')
+      ->condition('n.type', 'block_content', '=')
+      ->condition('n.status', 0, '>');
+
+    if (count($exclude_message)) {
+      $query->condition('n.nid', array_keys($exclude_message), 'NOT IN');
+    }
+
+    $result = $query->execute();
+    $node = $result->fetchAssoc();
+
+    if ($node) {
+      $legal_message = penton_lagel_comm_legal_load($node['nid']);
+
+      if (!count($legal_message)) {
+        $data = array(
+          'nid' => $node['nid'],
+        );
+      }
+      else {
+        $data = $legal_message;
+      }
+
+    }
+    else {
+      $data = FALSE;
+    }
+  }
+
+  return $data;
+}
+
+/**
+ * Init legal communication message.
+ *
+ * @return bool
+ *   status legal communication message
+ */
+function penton_legal_comm_initialize() {
+  static $status;
+
+  if (!isset($GLOBALS[PENTON_LEGAL_COMM_GLOBAL_NAME]) && !isset($status)) {
+    $data = penton_legal_comm_get_message_data();
+    $GLOBALS[PENTON_LEGAL_COMM_GLOBAL_NAME] = (bool) $data;
+  }
+  else {
+    $status = $GLOBALS[PENTON_LEGAL_COMM_GLOBAL_NAME];
+  }
+}
+
+/**
+ * Display legal communication message.
+ *
+ * @return string
+ *   html for render
+ */
+function penton_legal_comm_get_message() {
+  $data = penton_legal_comm_get_message_data();
+
+  if ($data == FALSE) {
+    return '';
+  }
+
+  $node = entity_metadata_wrapper('node', $data['nid']);
+
+  $nid      = $data['nid'];
+  $title    = ($node->title->value()) ? $node->title->value() : '';
+  $body     = ($node->body->value() && isset($node->body->value()['value'])) ? strip_tags($node->body->value()['value'], '<a>') : '';
+  $positive = (int) ($node->field_penton_requires_positive->value()) ? $node->field_penton_requires_positive->value() : '0';
+
+  $data['for_review'] = $positive;
+  $data['confirm']    = (empty($data['confirm'])) ? '0' : $data['confirm'];
+  $data['count']      = (empty($data['count'])) ? 1 : (int) $data['count'];
+
+  penton_lagel_comm_legal_save($data);
+
+  $tpl = 'legal_message';
+  if ($data['confirm'] == '0' && $data['for_review'] == '1' && $data['count'] > PENTON_LEGAL_COMM_COUNT_DISPLAY) {
+    $tpl = 'legal_popup';
+  }
+
+  return theme($tpl, array(
+    'legal_comm_data' => array(
+      'nid' => $nid,
+      'title' => $title,
+      'description' => $body,
+      'acknowled' => $positive,
+    ),
+  ));
+}
+
+/**
+ * Check the need to display a message.
+ *
+ * @return bool
+ *   status message
+ */
+function penton_legal_comm_is_message() {
+  return !empty($GLOBALS[PENTON_LEGAL_COMM_GLOBAL_NAME]);
+}
+
+/**
+ * Get cookies legal communication for user by key(nid).
+ *
+ * @param string|int $key
+ *   it's node id.
+ *
+ * @return array
+ *   with legal communication message
+ */
+function penton_legal_comm_get_user_cookies_by_nid($key) {
+  $cookies = penton_legal_comm_get_user_cookies();
+  return !empty($cookies[$key]) ? $cookies[$key] : array();
+}
+
+/**
+ * Get cookies legal communication for user.
+ *
+ * @return array
+ *   with legal communication message
+ */
+function penton_legal_comm_get_user_cookies() {
+  return (isset($_COOKIE['Drupal_legal'])) ? $_COOKIE['Drupal_legal'] : array();
+}
+
+/**
+ * Save cookies legal communication for user.
+ *
+ * @param string|int $key
+ *   it's node id.
+ * @param array $value
+ *   data for save in cookies
+ */
+function penton_legal_comm_set_user_cookies($key, array $value) {
+  foreach ($value as $k => $val) {
+    setrawcookie("Drupal.legal[{$key}][{$k}]", rawurlencode($val), REQUEST_TIME + PENTON_LEGAL_COMM_EXPIRES_COOKIE, '/');
+  }
+}
+
+/**
+ * Delete user cookies.
+ */
+function penton_legal_comm_user_cookie_delete() {
+  if (isset($_COOKIE['Drupal_legal'])) {
+    $cookies = $_COOKIE['Drupal_legal'];
+    foreach ($cookies as $nid => $cookie) {
+      foreach ($cookie as $name => $value) {
+        setrawcookie("Drupal.legal[$nid][{$name}]", rawurlencode($value), REQUEST_TIME - PENTON_LEGAL_COMM_EXPIRES_COOKIE, '/');
+      }
+    }
+  }
+}
+
+/**
+ * Save legal communication info.
+ *
+ * @param array $data
+ *   data for save in cookies or db
+ */
+function penton_lagel_comm_legal_save(array $data) {
+  global $user;
+
+  if (user_is_logged_in()) {
+    $user_data = (is_array($user->data['legal'])) ? $user->data : array();
+    $user_data['legal'][$data['nid']] = $data;
+    user_save($user, array('data' => $user_data));
+  }
+  else {
+    penton_legal_comm_set_user_cookies($data['nid'], $data);
+  }
+}
+
+/**
+ * Get legal communication info.
+ *
+ * @param int $nid
+ *   id for node table
+ *
+ * @return array
+ *   with legal communication
+ */
+function penton_lagel_comm_legal_load($nid) {
+  global $user;
+
+  if (user_is_logged_in() && !empty($user->data['legal'][$nid])) {
+    return $user->data['legal'][$nid];
+  }
+  else {
+    return penton_legal_comm_get_user_cookies_by_nid($nid);
+  }
+}
+
+/**
+ * Get legal communication informations.
+ *
+ * @return array
+ *   with legal communication message
+ */
+function penton_lagel_comm_legals_load() {
+  global $user;
+
+  if (user_is_logged_in() && !empty($user->data['legal'])) {
+    return $user->data['legal'];
+  }
+  else {
+    return penton_legal_comm_get_user_cookies();
+  }
+}

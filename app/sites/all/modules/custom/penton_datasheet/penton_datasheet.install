@@ -1,0 +1,89 @@
+<?php
+/**
+ * @file
+ * Installs for the Penton Article feature.
+ */
+
+/**
+ * Creates a database schema for the datasheet functionality.
+ *
+ * @author James Linnell james.linnell@ixxus.com
+ *
+ * @return object
+ *   The database schema.
+ */
+function penton_datasheet_schema() {
+  $schema['penton_data_table'] = array(
+    'description' => "Table holds array data for being output on book pages",
+    'fields' => array(
+      'dtid' => array(
+        'description' => 'The primary identifier for a datatable.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'vid' => array(
+        'description' => 'The current datatable version identifier.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'nid' => array(
+        'description' => 'The primary identifier for the associated node.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'pid' => array(
+        'description' => 'The parent identifier for the associated node if there is one.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'header_data' => array(
+        'description' => 'This is a serialized array of headers to be output with theme_table',
+        'type' => 'text',
+        'size' => 'big',
+      ),
+      'array_data' => array(
+        'description' => 'This is a serialized array of data to be output with theme_table',
+        'type' => 'text',
+        'size' => 'big',
+      ),
+    ),
+    'primary key' => array('dtid'),
+  );
+  return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ *
+ * @author James Linnell james.linnell@ixxus.com
+ */
+function penton_datasheet_uninstall() {
+  if (db_table_exists('penton_data_table')) {
+    drupal_uninstall_schema('penton_datasheet');
+  }
+}
+
+/**
+ * Implements hook_update_N().
+ */
+function penton_datasheet_update_6001() {
+  // Re-save all data table articles to regenerate datasheet info.
+  $data_table_term = current(taxonomy_get_term_by_name('Data Table', 'article_type'));
+  $res = (new EntityFieldQuery())
+    ->entityCondition('entity_type', 'node')
+    ->entityCondition('bundle', 'article')
+    ->fieldCondition('field_penton_article_type', 'tid', $data_table_term->tid)
+    ->execute();
+  if (!empty($res['node'])) {
+    $datatables = node_load_multiple(array_column(array_values($res['node']), 'nid'));
+    foreach ($datatables as $datatable) {
+      node_save($datatable);
+    }
+  }
+}

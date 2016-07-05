@@ -1,0 +1,50 @@
+From e573dcd8031afe74979a2d9fbc0f713aebc2e93b Mon Sep 17 00:00:00 2001
+From: Scott Robertson <srobertson@acromediainc.com>
+Date: Wed, 5 Nov 2014 16:00:57 -0800
+Subject: [PATCH] error when saving a taxonomy term programmatically
+
+---
+ term_authoring_info.module | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/term_authoring_info.module b/term_authoring_info.module
+index 2c81764..adc566d 100644
+--- a/term_authoring_info.module
++++ b/term_authoring_info.module
+@@ -112,6 +112,10 @@ function term_authoring_info_form_taxonomy_form_term_alter(&$form, &$form_state,
+     );
+ 
+     $form['#validate'][] = 'term_authoring_info_validate';
++
++    // Add a submit handler to run prior to the term being saved.
++    $form += array('#submit' => array());
++    array_unshift($form['#submit'], 'term_authoring_info_submit');
+   }
+ }
+ 
+@@ -138,6 +142,13 @@ function term_authoring_info_validate($form, &$form_state) {
+ }
+ 
+ /**
++ * Form submit handler for authoring information fields.
++ */
++function term_authoring_info_submit($form, &$form_state) {
++  $form_state['values']['created'] = strtotime($form_state['values']['created']);
++}
++
++/**
+  * Implements hook_taxonomy_term_load().
+  */
+ function term_authoring_info_taxonomy_term_load($terms) {
+@@ -191,7 +202,7 @@ function term_authoring_info_save($term) {
+     }
+ 
+     // The created timestamp.
+-    $term->created = !empty($term->created) ? strtotime($term->created) : REQUEST_TIME;
++    $term->created = !empty($term->created) ? $term->created : REQUEST_TIME;
+ 
+     // The changed timestamp.
+     $term->changed = REQUEST_TIME;
+-- 
+1.8.4.msysgit.0
+

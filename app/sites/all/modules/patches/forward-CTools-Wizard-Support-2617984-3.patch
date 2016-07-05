@@ -1,0 +1,12 @@
+diff --git a/forward.module b/forward.module
+index c8084d3..d4deabe 100644
+--- a/forward.module
++++ b/forward.module
+@@ -371,7 +371,6 @@ function forward_form($form, &$form_state, $path = NULL, $node = NULL, $nodeapi
+ 
+   $emailtype = ($path == 'epostcard') ? 'epostcard' : 'email';
+ 
+-  $form = array();
+   $cid = array();
+ 
+   if (preg_match("/\?cid=/i", $path) == 1) {

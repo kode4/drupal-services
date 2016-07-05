@@ -1,0 +1,63 @@
+<?php
+/**
+ * @file
+ * Tests for the penton_captcha feature module
+ */
+
+
+/**
+ * Class PentoncaptchaTests.
+ *
+ * Tests in forms if reCAPTCHA block exists.
+ *
+ * @author Rodion Dolin <rdolin@thumbtack.net>
+ */
+class PentoncaptchaTests extends DrupalWebTestCase {
+
+  /**
+   * Metadata about the test case.
+   */
+  public static function getInfo() {
+    return array(
+      'name' => 'Penton Captcha Feature',
+      'description' => 'Tests that recaptcha widget appeared in appropriate forms',
+      'group' => 'Penton',
+    );
+  }
+
+  /**
+   * Perform setup tasks.
+   */
+  public function setUp() {
+    parent::setUp(
+      array(
+        'features',
+        'penton_captcha',
+      )
+    );
+
+    // Run a features rebuild to ensure our feature is fully installed.
+    features_rebuild();
+
+    // Set any keys to make recaptcha work.
+    variable_set('recaptcha_site_key', 'siteKeyHere');
+    variable_set('recaptcha_secret_key', 'secretKeyHere');
+    $this->refreshVariables();
+  }
+
+  /**
+   * CAPTCHA in forms.
+   */
+  public function testCaptchaInForms() {
+    $this->drupalGet('user/password');
+    $this->assertRaw('<div class="g-recaptcha" data-sitekey="siteKeyHere" data-theme="light" data-type="image">',
+      "reCAPTCHA widget is on the request new password form.");
+    $this->drupalGet('user/register');
+    $this->assertRaw('<div class="g-recaptcha" data-sitekey="siteKeyHere" data-theme="light" data-type="image">',
+      "reCAPTCHA widget is on the user register form.");
+    $this->drupalGet('user');
+    $this->assertNoRaw('<div class="g-recaptcha" data-sitekey="siteKeyHere" data-theme="light" data-type="image">',
+      "reCAPTCHA widget is NOT on the user login form.");
+  }
+
+}

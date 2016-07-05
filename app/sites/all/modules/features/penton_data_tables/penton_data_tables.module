@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Data Tables feature.
+ */
+
+include_once 'penton_data_tables.features.inc';

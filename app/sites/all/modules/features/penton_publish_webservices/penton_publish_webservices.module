@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Publish Webservices feature.
+ */
+
+include_once 'penton_publish_webservices.features.inc';

@@ -1,0 +1,80 @@
+<?php
+/**
+ * @file
+ * Installation file for the penton_content_manager module.
+ */
+
+/**
+ * Implements hook_install().
+ *
+ * Adds new role with proper permissions.
+ * Adds a user with such role.
+ */
+function penton_content_preview_install() {
+  // Add role for content manager.
+  $role = new stdClass();
+  $role->name = 'content preview';
+  $role->rid = PENTON_CONTENT_PREVIEW_RID;
+  user_role_save($role);
+  $rid = $role->rid;
+
+  // Sanity check to ensure role id match the constant we defined.
+  if ($rid != PENTON_CONTENT_PREVIEW_RID) {
+    db_update('role')
+      ->fields(array('rid' => PENTON_CONTENT_PREVIEW_RID))
+      ->condition('rid', $rid)
+      ->execute();
+  }
+
+  // Grant permissions to this role.
+  user_role_grant_permissions(PENTON_CONTENT_PREVIEW_RID, array(
+    'view any unpublished content',
+  ));
+
+  // Now create a user with this role.
+  $edit = array(
+    'name' => variable_get('content_preview_name', 'content_preview'),
+    'pass' => variable_get('content_preview_pass', 'content_preview'),
+    'mail' => variable_get('content_preview_mail', 'content_preview@yopmail.com'),
+    'status'  => 1,
+    'language' => LANGUAGE_NONE,
+    'timezone' => variable_get('date_default_timezone', 'America/New_York'),
+    'roles' => array(
+      DRUPAL_AUTHENTICATED_RID => TRUE,
+      PENTON_CONTENT_PREVIEW_RID => TRUE,
+    ),
+  );
+
+  // Create user and report.
+  $t = get_t();
+  $account = user_save(drupal_anonymous_user(), $edit);
+  if ($account) {
+    drupal_set_message($t('Created the following user: <a href="@url">@name</a>', array('@name' => format_username($account), '@url' => url("user/$account->uid"))));
+  }
+  else {
+    drupal_set_message($t("Couldn't create the default content preview user."));
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function penton_content_preview_uninstall() {
+  // Delete role.
+  user_role_delete('content preview');
+
+  // Delete default user.
+  $username = variable_get('content_preview_name', 'content_preview');
+  if ($account = user_load_by_name($username)) {
+    user_delete($account->uid);
+    $t = get_t();
+    drupal_set_message($t('Deleted the following user: @name', array(
+      '@name' => $username,
+    )));
+  }
+
+  // Remove the variables defined.
+  variable_del('content_preview_name');
+  variable_del('content_preview_pass');
+  variable_del('content_preview_mail');
+}

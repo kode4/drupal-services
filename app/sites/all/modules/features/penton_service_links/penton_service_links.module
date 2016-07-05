@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton service links feature.
+ */
+
+include_once 'penton_service_links.features.inc';

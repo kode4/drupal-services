@@ -1,0 +1,65 @@
+<?php
+/**
+ * @file
+ * This is a the install for the penton_core module
+ *
+ * This install file should be used for any installs or updates needed for
+ * penton_core. Setting date formats in here as they are not playing nicely
+ * with features.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function penton_core_install() {
+  // Set the default timezone.
+  date_default_timezone_set('America/New_York');
+}
+
+/**
+ * Implements hook_update_N().
+ */
+function penton_core_update_7000() {
+  // Set the default timezone.
+  date_default_timezone_set('America/New_York');
+}
+
+/**
+ * Implements hook_update_N().
+ */
+function penton_core_update_7001() {
+  // Add /users/* path to robots.txt.
+  $current_rootstxt = variable_get('robotstxt', '');
+  variable_set('robotstxt', $current_rootstxt . "\n#User pages\nDisallow: /users/");
+}
+
+/**
+ * Implements hook_update_N().
+ */
+function penton_core_update_7002() {
+  // Delete variable responsible for including user links in xml sitemap.
+  variable_del('xmlsitemap_settings_user_user');
+}
+
+/**
+ * Implements hook_update_N().
+ */
+function penton_core_update_7003() {
+  variable_set('dfp_tags_global_settings_viewport', 0);
+}
+
+/**
+ * Implements hook_update_N().
+ */
+function penton_core_update_7004() {
+  // Delete pillar navigation menu icons.
+  $tree = menu_tree_page_data('menu-pillar-navigation');
+  foreach ($tree as $pillar_link) {
+    $fields = menu_fields_load_by_mlid($pillar_link['link']['mlid']);
+    if (!empty($fields->penton_field_icon[LANGUAGE_NONE][0]['value'])) {
+      $fields_wrapper = entity_metadata_wrapper('menu_fields', $fields);
+      $fields_wrapper->penton_field_icon->set('');
+      $fields_wrapper->save();
+    }
+  }
+}

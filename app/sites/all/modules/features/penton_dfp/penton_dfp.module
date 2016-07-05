@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton DFP feature.
+ */
+
+include_once 'penton_dfp.features.inc';
