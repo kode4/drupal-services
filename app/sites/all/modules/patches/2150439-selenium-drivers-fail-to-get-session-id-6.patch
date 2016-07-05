@@ -1,0 +1,61 @@
+diff --git a/modules/selenium/drupal_selenium_web_test_case.php b/modules/selenium/drupal_selenium_web_test_case.php
+--- a/modules/selenium/drupal_selenium_web_test_case.php
++++ b/modules/selenium/drupal_selenium_web_test_case.php
+@@ -2364,10 +2364,11 @@
+     // We add new line charachter to header as ChromeDriver doesn't have ending
+     // new line charachter.
+     $response['header'] .= "\n";
+-    // Parse out session id
+-    preg_match("/\n[Ll]ocation:.*\/(.*)\n/", $response['header'], $matches);
+-    if (count($matches) > 0) {
+-      $this->session_id = trim($matches[1]);
++
++    // Get session id from server response.
++    $session_id = $this->getSessionId($response);
++    if ($session_id) {
++      $this->session_id = $session_id;
+     }
+     else {
+       $message = "Did not get a session id from " . $this->SELENIUM_SERVER_URL . "\n";
+@@ -2382,6 +2383,41 @@
+       }
+       throw new Exception($message);
+     }
++  }
++
++  /**
++   * Get Selenium server session from response.
++   *
++   * This handles both old session location in response header (Selenium version
++   * 2.33.0 and below) and new location in response body.
++   *
++   * @param string $response
++   *   CURL response from posting to /session.
++   *
++   * @see https://www.drupal.org/node/2150439
++   */
++  protected function getSessionId($response) {
++    $session_id = FALSE;
++
++    // Handle session for Selenium server version above 2.33.0.
++    if (!empty($response['body'])) {
++      // Get session id from the response body.
++      $body = json_decode($response['body']);
++      if (!empty($body->sessionId)) {
++        $session_id = $body->sessionId;
++      }
++    }
++
++    // If session was not parsed successfully before, try to parse it using old
++    // server version response.
++    if (!$session_id) {
++      preg_match("/\n[Ll]ocation:.*\/(.*)\n/", $response['header'], $matches);
++      if (count($matches) > 0) {
++        $session_id = trim($matches[1]);
++      }
++    }
++
++    return $session_id;
+   }
+ }
+

@@ -1,0 +1,5 @@
+name = Penton Newsletter Manager
+package = Penton
+description = Import and manage newsletters across site.
+core = 7.x
+version = "7.x-0.1"

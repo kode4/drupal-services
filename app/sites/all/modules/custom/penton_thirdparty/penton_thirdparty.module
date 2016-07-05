@@ -1,0 +1,8 @@
+<?php
+/**
+ * @file
+ * This is a core module for penton for installing third party apis
+ *
+ * This module provides any functions that allow third party interations on the
+ * penton websites. Use this for initial setup and global functionality
+ */

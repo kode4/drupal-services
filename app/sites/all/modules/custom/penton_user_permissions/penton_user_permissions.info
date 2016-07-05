@@ -1,0 +1,5 @@
+name = Penton User Permissions
+package = Penton
+description = Manages user permissions.
+core = 7.x
+version = "7.x-0.1"

@@ -1,0 +1,31 @@
+diff --git a/resources/user_resource.inc b/resources/user_resource.inc
+index 04801fb..217653a 100644
+--- a/resources/user_resource.inc
++++ b/resources/user_resource.inc
+@@ -406,6 +406,26 @@ function _user_resource_update($uid, $account) {
+     }
+   }
+ 
++  // Prepare values for the user profile image.
++  if (array_key_exists('picture_upload', $account)) {
++    if (is_array($account['picture_upload'])) {
++      // Check if it's an array and convert to object.
++      $account['picture_upload'] = (object) $account['picture_upload'];
++    }
++    elseif (is_int($account['picture_upload'])) {
++      // Check if it's an integer and get the file object.
++      if (empty(file_validate_is_image($file = file_load($account['picture_upload'])))) {
++        $account['picture_upload'] = $file;
++      }
++    }
++    elseif (is_string($account['picture_upload'])) {
++      // Check if it's an string and get the file object.
++      if (empty(file_validate_is_image($file = file_load((int) $account['picture_upload'])))) {
++        $account['picture_upload'] = $file;
++      }
++    }
++  }
++
+   // Prepare values of roles. Check user's permission before allowing changes to roles.
+   if (!isset($account['roles']) || !user_access('administer users')) {
+     $account['roles'] = $account_loaded->roles;

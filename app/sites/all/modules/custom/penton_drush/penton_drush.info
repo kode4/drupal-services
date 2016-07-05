@@ -1,0 +1,4 @@
+name = Penton Drush
+description = Custom Drush commands for penton.
+core = 7.x
+version = 7.x-0.1

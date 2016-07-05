@@ -1,0 +1,92 @@
+<?php
+
+/**
+ * @file
+ * Manages Author articles.
+ */
+
+/**
+ * Gets articles.
+ *
+ * @param int $user_id
+ *   User id.
+ * @param int $start
+ *   First article position.
+ * @param int $count
+ *   Number of articles.
+ *
+ * @return array
+ *   Returns an array of nodes.
+ */
+function penton_author_articles_get($user_id, $start = 0, $count = 10) {
+  $from = $start * $count;
+
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'node');
+  $query->propertyCondition('type', 'article');
+  $query->propertyCondition('status', 1);
+  $query->fieldCondition('field_penton_author', 'target_id', $user_id);
+  $query->propertyOrderBy('created', 'DESC');
+  $query->range($from, $count);
+  $query->addTag('author_articles');
+  $result = $query->execute();
+  $nodes = [];
+  if (isset($result['node'])) {
+    $nodes_nids = array_keys($result['node']);
+    $nodes = entity_load('node', $nodes_nids);
+  }
+  foreach ($nodes as &$node) {
+    $node->featured_image_style = 'tax_thumbs_standard';
+    $node->trim_summary = 220;
+  }
+
+  return $nodes;
+}
+
+/**
+ * Implements hook_query_TAG_alter().
+ *
+ * Needed to exclude articles with unchecked "promote on site lists" checkbox.
+ */
+function penton_author_articles_query_author_articles_alter(QueryAlterableInterface $query) {
+  $query->leftJoin('field_data_field_penton_promote_on_site', 'p', 'p.entity_id = nid');
+  $query->condition('p.field_penton_promote_on_site_value', '1');
+}
+
+/**
+ * Implements hook_theme().
+ */
+function penton_author_articles_theme() {
+  $module_path = drupal_get_path('module', 'penton_author_articles');
+  return array(
+    'penton_author_articles' => array(
+      'template' => 'articles',
+      'path' => $module_path . '/templates',
+      'arguments' => array(
+        'author_articles' => NULL,
+      ),
+    ),
+  );
+}
+
+/**
+ * Gets author articles count count.
+ *
+ * @param int $user_id
+ *   User id.
+ * @param int $limit_articles_on_page
+ *   Limit articles on page.
+ *
+ * @return int
+ *   Returns count.
+ */
+function penton_author_articles_get_total_count($user_id, $limit_articles_on_page = 10) {
+  $count_query = new EntityFieldQuery();
+  $count_query->entityCondition('entity_type', 'node');
+  $count_query->propertyCondition('type', 'article');
+  $count_query->propertyCondition('status', 1);
+  $count_query->fieldCondition('field_penton_author', 'target_id', $user_id);
+  $count_query->addTag('author_articles');
+  $total = $count_query->count()->execute();
+  return $total;
+}

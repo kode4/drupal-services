@@ -1,0 +1,112 @@
+<?php
+/**
+ * @file
+ * Helper module to generate content and user against gated features.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function penton_gated_generate_menu() {
+  $items = array();
+
+  $items['admin/config/development/penton_gated_generate'] = array(
+    'title' => 'Penton gated generate',
+    'description' => 'Generate Penton gated content and users. Optionally delete what already exists.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_gated_generate_form'),
+    'access arguments' => array('generate penton gated'),
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function penton_gated_generate_permission() {
+  return array(
+    'generate penton gated' => array(
+      'title' => t('Generate penton gated'),
+      'description' => t('Generate penton gated content and users.'),
+    ),
+  );
+}
+
+/**
+ * Generate content and users using form API.
+ */
+function penton_gated_generate_form() {
+  $form['clean'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Delete all users (except user id 1), taxonomy terms and nodes before generating new ones.'),
+    '#default_value' => FALSE,
+  );
+
+  $form['generate_users'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Add generated users to the site.'),
+    '#description' => t('These users will be re-generated anytime you add them.'),
+    '#default_value' => TRUE,
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Generate'),
+  );
+  return $form;
+}
+
+/**
+ * FormAPI submit action to generate penton gated content and users.
+ */
+function penton_gated_generate_form_submit($form, &$form_state) {
+  module_load_include('inc', 'penton_gated_generate');
+  $values = $form_state['values'];
+
+  // Generate users first.
+  if ($values['generate_users']) {
+    _penton_gated_generate_users($values['clean']);
+  }
+
+  // Then generate Taxonomy terms.
+  $vocabulary_names = array('categories', 'program');
+  $vids = array();
+  foreach ($vocabulary_names as $name) {
+    $vocabulary = taxonomy_vocabulary_machine_name_load($name);
+    $vids[] = $vocabulary ? $vocabulary->vid : NULL;
+  }
+  $gated_terms = _penton_gated_generate_terms($vids);
+
+  // Then generate Content.
+  $form_state['values'] += array(
+    'node_types' => array(
+      // For now we are checking gating against articles only.
+      // @todo add support on other node types.
+      'article',
+    ),
+  );
+  $nids = _penton_gated_generate_content($form_state, $gated_terms);
+
+  // Finally pin some elements.
+  $gated_terms = taxonomy_term_load_multiple($gated_terms);
+  foreach ($gated_terms as $term) {
+    _penton_gated_generate_pin($nids, $term);
+  }
+
+}
+
+/**
+ * Implements hook_node_insert().
+ *
+ * Add comments to articles.
+ */
+function penton_gated_generate_node_insert($node) {
+  if (isset($node->penton_gated_generate)) {
+    $results = $node->penton_gated_generate;
+    if (!empty($results['max_comments']) && $node->comment >= COMMENT_NODE_OPEN) {
+      module_load_include('inc', 'devel_generate');
+      devel_generate_add_comments($node, $results['users'], $results['max_comments'], $results['title_length']);
+    }
+  }
+}

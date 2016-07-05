@@ -1,0 +1,114 @@
+<?php
+/**
+ * @file
+ * Installs the module, Penton Newsletter Manager.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function penton_newsletter_manager_schema() {
+  $schema['penton_newsletter'] = array(
+    'description' => 'Stores newsletters',
+    'fields' => array(
+      'nlid'  => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'description' => 'Primary Key: Unique newsletter ID.',
+      ),
+      'title' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'description' => 'Title of the newsletter.',
+      ),
+      'active' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Boolean flag indicating if newsletter is active or not.',
+      ),
+      'description' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Short summary about newsletter.',
+      ),
+      'mailing_frequency' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'How often newsletter is sent (Monthly, Weekly, Daily, etc).',
+      ),
+      'thumbnail' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Thumbnail image.',
+      ),
+      'newsletter_code' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Newsletter code in eNewsPRO.',
+      ),
+      'current_issue' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Link to the current issue.',
+      ),
+      'archives_url' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Link to archives of this newsletter.',
+      ),
+      'email_group_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Eloqua group ID.',
+      ),
+    ),
+    'unique keys' => array(
+      'title' => array('title'),
+    ),
+    'primary key' => array('nlid'),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function penton_newsletter_manager_install() {
+  penton_newsletter_manager_import_newsletters();
+
+  // Set all newsletters to appear in Newsletter Sign-Up box
+  // and the first newsletter as promoted.
+  $newsletters = array_keys(entity_load('penton_newsletter'));
+  variable_set('penton_newsletter_manager_enabled', $newsletters);
+  variable_set('penton_newsletter_manager_promoted', $newsletters[0]);
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function penton_newsletter_manager_uninstall() {
+  $result = db_select('variable', 'v')
+    ->fields('v')
+    ->condition('v.name', 'penton_newsletter_manager_%', 'LIKE')
+    ->execute();
+
+  foreach ($result as $variable) {
+    variable_del($variable->name);
+  }
+}

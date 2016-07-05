@@ -1,0 +1,17 @@
+name = Field Limelight
+description = Provides a field to integrate videos from http://limelight.com
+core = 7.x
+package = Fields
+
+files[] = field_limelight.module
+files[] = field_limelight.install
+files[] = field_limelight.admin.inc
+files[] = field_limelight.theme.inc
+
+dependencies[] = file
+; Information added by Drupal.org packaging script on 2014-02-27
+version = "7.x-1.0"
+core = "7.x"
+project = "field_limelight"
+datestamp = "1393493646"
+

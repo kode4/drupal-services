@@ -1,0 +1,10 @@
+name = Penton Maintenance Mode
+description = Provides maintenance mode message.
+core = 7.x
+package = Penton Features
+version = 7.x-0.1
+dependencies[] = ctools
+dependencies[] = strongarm
+features[ctools][] = strongarm:strongarm:1
+features[features_api][] = api:2
+features[variable][] = maintenance_mode_message

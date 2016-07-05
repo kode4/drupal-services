@@ -1,0 +1,438 @@
+<?php
+/**
+ * @file
+ * This is a core module for penton.
+ *
+ * This module provides any functions that allow the basic core setup of a
+ * penton website. Use this for initial setup and global functionality.
+ */
+
+/**
+ * Imoprtant things like response headers.
+ *
+ * Implements hook_init().
+ */
+function penton_core_init() {
+  drupal_add_http_header('X-UA-Compatible', 'IE=edge,chrome=1');
+  drupal_add_js(['typekitId' => variable_get('penton_core_typekit_id', 'ntl8rdl')], 'setting');
+}
+
+/**
+ * Implements hook_token_info().
+ */
+function penton_core_token_info() {
+  $info['tokens']['site']['description'] = array(
+    'name' => t('Description'),
+    'description' => t('The metatag description'),
+  );
+  $info['tokens']['node']['product_and_storefront_summary'] = array(
+    'name' => t('Product Summary'),
+    'description' => t('The Summary for Node with type Product'),
+  );
+  return $info;
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function penton_core_tokens($type, $tokens, array $data = array(), array $options = array()) {
+  $replacements = array();
+
+  if (isset($tokens['description'])) {
+    $replacements[$tokens['description']] = variable_get('site_description', '');
+  }
+  $node = (empty($data['entity'])) ? FALSE : $data['entity'];
+  if (!empty($node) && isset($tokens['product_and_storefront_summary']) && in_array($node->type, array('product', 'store_front'))) {
+    $replacements[$tokens['product_and_storefront_summary']] = (empty($data['entity']->body[LANGUAGE_NONE][0]['summary'])) ? '' : $data['entity']->body[LANGUAGE_NONE][0]['summary'];
+  }
+
+  return $replacements;
+}
+
+/**
+ * Make sure penton content seo fields comply with content model.
+ *
+ * Implements hook_form_alter().
+ */
+function penton_core_form_alter(&$form, &$form_state, $form_id) {
+  $penton_forms = array(
+    'article_node_form',
+    'media_entity_node_form',
+    'taxonomy_form_term',
+    'user_profile_form',
+    'page_node_form',
+  );
+  if (in_array($form_id, $penton_forms)) {
+    // Enable metatag required fields.
+    $seo_required_fields = array(
+      'title',
+      'description',
+    );
+    foreach ($seo_required_fields as $field) {
+      if (isset($form['metatags']['und'][$field]['value'])) {
+        $form['metatags']['und'][$field]['value']['#required'] = TRUE;
+      }
+    }
+
+    if (isset($form['metatags']['und']['advanced']['canonical']['value'])) {
+      $form['metatags']['und']['advanced']['canonical']['value']['#required'] = TRUE;
+    }
+
+    if (isset($form['field_penton_legal_comm'])) {
+      $form['field_penton_legal_comm']['#access'] = FALSE;
+    }
+  }
+  if ($form_id === 'system_site_information_settings') {
+    $form['site_information']['site_description'] = array(
+      '#type' => 'textarea',
+      '#title' => t('Description'),
+      '#default_value' => variable_get('site_description', ''),
+    );
+  }
+}
+
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function penton_core_form_article_node_form_alter(&$form, &$form_state, $form_id) {
+  if (!empty($form['field_penton_link_image_gallery'][LANGUAGE_NONE])) {
+    $form['field_penton_link_image_gallery'][LANGUAGE_NONE]['#maxlength'] = 99999;
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function penton_core_menu() {
+  $items['admin/config/site_specific'] = array(
+    'title' => 'Site specific settings',
+    'description' => 'Configure site specific settings.',
+    'position' => 'left',
+    'weight' => -30,
+    'page callback' => 'system_admin_menu_block_page',
+    'access arguments' => array('administer site configuration'),
+    'access callback' => 'user_access',
+    'file' => 'system.admin.inc',
+    'file path' => drupal_get_path('module', 'system'),
+  );
+
+  $items['admin/config/site_specific/variables'] = array(
+    'title' => 'Variables',
+    'description' => 'Configure site specific variables.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_core_admin_variables_tab_form'),
+    'access arguments' => array('administer site configuration'),
+    'access callback' => 'user_access',
+    'file' => 'penton_core.admin.inc',
+    'weight' => 0,
+  );
+  // TODO: Make an additional pages to fine tune.
+
+  return $items;
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function penton_core_menu_alter(&$items) {
+  // Deny access to standard registration pages.
+  $items['user/register']['access callback'] = 'penton_core_user_login_access';
+  $items['user/password']['access callback'] = FALSE;
+  $items['user/login']['access callback'] = 'penton_core_user_login_access';
+  $items['node/%node']['access callback'] = 'penton_core_node_page_access';
+  $items['node']['access callback'] = FALSE;
+  $items['node/%node/edit']['access callback'] = 'penton_core_node_administer_access';
+  $items['node/%node/delete']['access callback'] = 'penton_core_node_administer_access';
+}
+
+/**
+ * Implements hook_pathauto_alias_alter().
+ */
+function penton_core_pathauto_alias_alter(&$alias, $context) {
+  if ($context['module'] == "user") {
+    if (array_key_exists(PENTON_AUTHOR_RID, $context['data']['user']->roles)) {
+      $first_name = isset($context['data']['user']->field_penton_profile['und'][0]['first_name']) ? $context['data']['user']->field_penton_profile['und'][0]['first_name'] : '';
+      $last_name = isset($context['data']['user']->field_penton_profile['und'][0]['last_name']) ? $context['data']['user']->field_penton_profile['und'][0]['last_name'] : '';
+      $alias = "author/" . $first_name . "-" . $last_name;
+    }
+  }
+}
+
+/**
+ * Implements hook_ctools_plugin_api().
+ */
+function penton_core_ctools_plugin_api($owner, $api) {
+  if ($owner == 'metatag' && $api == 'metatag') {
+    return array('version' => 1);
+  }
+}
+
+/**
+ * Full node page access callback.
+ *
+ * Disallow access to 'technical' content types.
+ *
+ * @return bool
+ *   FALSE if regular user viewing media_entity, gating_copy or block_content
+ */
+function penton_core_node_page_access($op, $node, $account = NULL) {
+  $node_type = is_object($node) ? $node->type : $node;
+
+  // View feeds only if can administer it.
+  if (in_array($node_type, ['penton_feed']) && $op === 'view' && !user_access('administer feeds')) {
+    return FALSE;
+  }
+
+  // Prevent system nodes from view by non-admins.
+  if ((in_array($node_type, ['media_entity', 'block_content'])
+      || ($node_type == 'gating_copy' && arg(0) == 'node' && is_numeric(arg(1)) && is_object($node) && arg(1) == $node->nid))
+    && $op === 'view'
+    && !user_access('administer nodes')
+  ) {
+    return FALSE;
+  }
+
+  return node_access($op, $node, $account);
+}
+
+/**
+ * Full node edit/delete access callback.
+ *
+ * Dis/allow access to penton feed module.
+ *
+ * @return bool
+ *   FALSE if restricted.
+ */
+function penton_core_node_administer_access($op, $node, $account = NULL) {
+  $node_type = is_object($node) ? $node->type : $node;
+
+  // Can administer articles fetched by feeds if can administer feeds.
+  // List of node types which can be fetched by feed aggregator.
+  if (in_array($node_type, ['article'])) {
+    $fi = feeds_item_info_load('node', $node->nid);
+
+    if (!empty($fi) && !user_access('administer feeds')) {
+      return FALSE;
+    }
+    elseif (!empty($fi)) {
+      return TRUE;
+    }
+  }
+
+  return node_access($op, $node, $account);
+}
+
+/**
+ * Implements hook_metatag_metatags_view_alter().
+ *
+ * Additional metatag logic on nodes.
+ */
+function penton_core_metatag_metatags_view_alter(&$output, $instance, $options) {
+  // Prevent indexing and following on modals in /nojs/ mode.
+  if ((in_array('nojs', arg()) || in_array('penton_modal', arg()))
+    || (arg(0) == 'user' && arg(1) == 'register')) {
+    $metatag_instance = metatag_get_instance('robots', array(
+      'value' => array(
+        'noindex' => 'noindex',
+        'nofollow' => 'nofollow',
+      ),
+    ));
+    $output['robots'] = $metatag_instance->getElement($options);
+  }
+}
+
+/**
+ * Login page access callback.
+ *
+ * Allow access to login page by a "secret" key.
+ *
+ * @return bool
+ *   TRUE if anonymous + $_GET['please'] = 1 is present
+ */
+function penton_core_user_login_access() {
+  $status = FALSE;
+  if (is_simpletest_running() || filter_input(INPUT_GET, 'please')) {
+    $status = user_is_anonymous();
+  }
+  return $status;
+}
+
+/**
+ * Flag to check if we're running under simpletest.
+ *
+ * @return bool
+ *   TRUE if simpletest is running
+ */
+function is_simpletest_running() {
+  // Determine by db prefix so it would be possible to
+  // launch test instance manually.
+  $dbprefix = !empty($GLOBALS['databases']['default']['default']['prefix']) ? $GLOBALS['databases']['default']['default']['prefix'] : '';
+  return !empty($dbprefix);
+}
+
+if (!function_exists('is_ajax')) {
+
+  /**
+   * Check if serving XHR request.
+   *
+   * @return bool
+   *   true if ajax
+   */
+  function is_ajax() {
+    return drupal_strtolower(filter_input(INPUT_SERVER, 'HTTP_X_REQUESTED_WITH')) === 'xmlhttprequest';
+  }
+}
+
+if (!function_exists('drush_print_r')) {
+  /**
+   * Fallback function for drush_print_r() widely used in profiles.
+   *
+   * Prevents from fatal error when running tests.
+   */
+  function drush_print_r($var) {
+    print_r($var) . "\n";
+  }
+}
+
+/**
+ * Implements hook_mail_alter().
+ *
+ * Adds Green Arrow specific headers to mail.
+ */
+function penton_core_mail_alter(&$message) {
+  $message['headers']['X-GreenArrow-MtaId'] = 'gamail.penton.com';
+  if ($message['module'] == 'user') {
+    if ($message['id'] == 'register_no_approval_required') {
+      $message['headers']['X-GreenArrow-MailClass'] = 'register';
+    }
+    elseif ($message['id'] == 'password_reset') {
+      $message['headers']['X-GreenArrow-MailClass'] = 'account';
+    }
+  }
+  elseif ($message['module'] == 'penton_user_register' && $message['id'] == 'email_this_article_form_key') {
+    $message['headers']['X-GreenArrow-MailClass'] = 'forward';
+  }
+  else {
+    $message['headers']['X-GreenArrow-MailClass'] = 'default';
+  }
+}
+
+/**
+ * Implements hook_node_insert().
+ */
+function penton_core_node_insert($node) {
+  _penton_core_flush_page_cache();
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function penton_core_node_update($node) {
+  _penton_core_flush_page_cache();
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function penton_core_node_delete($node) {
+  _penton_core_flush_page_cache();
+}
+
+/**
+ * Clear page cache for anonymous users so they can see changes immediately.
+ */
+function _penton_core_flush_page_cache() {
+  cache_clear_all('*', 'cache_page', TRUE);
+}
+
+/**
+ * Implements hook_views_pre_render().
+ */
+function penton_core_views_pre_render(&$view) {
+  if ($view->name == 'rss_views' && $view->current_display == 'feed_1') {
+
+    foreach ($view->result as $id => $result) {
+      // If summary field is empty, pull something from body.
+      if (isset($result->field_field_penton_content_summary[0]['rendered'])
+        && empty($result->field_field_penton_content_summary[0]['rendered'])
+      ) {
+        $body = $result->_field_data['nid']['entity']->body[LANGUAGE_NONE][0]['safe_value'];
+        $summary = truncate_utf8(strip_tags($body), 255, TRUE, TRUE);
+        $view->result[$id]->field_field_penton_content_summary[0]['rendered'] = $summary;
+      }
+    }
+  }
+}
+
+/**
+ * Returns current node's subtype.
+ *
+ * @param int $nid
+ *   Node ID.
+ *
+ * @return string
+ *   Node subtype (field_penton_article_type/field_penton_page_type)
+ */
+function penton_core_node_subtype($nid = NULL) {
+  module_load_include('inc', 'pathauto');
+  $subtype = '';
+  $node = !isset($nid) ? menu_get_object() : node_load($nid);
+  if ($node) {
+    $node_meta = entity_metadata_wrapper('node', $node);
+    if ($node->type === 'article' && isset($node_meta->field_penton_article_type)) {
+      $subtype = pathauto_cleanstring($node_meta->field_penton_article_type->get(0)->value()->name);
+    }
+    elseif ($node->type === 'page' && isset($node_meta->field_penton_page_type)) {
+      $subtype = pathauto_cleanstring($node_meta->field_penton_page_type->value()->name);
+    }
+  }
+  return $subtype;
+}
+
+/**
+ * Implements hook_preprocess_views_view_row_rss().
+ */
+function penton_core_preprocess_views_view_row_rss(&$vars) {
+  if (in_array($vars['view']->current_display, array('full_text_feed', 'feed_1'))) {
+    unset($vars['row']->elements[1]);
+    $item = &$vars['row'];
+    $nid = $item->nid;
+
+    $source = node_load($nid);
+    if (!empty($source->field_penton_link_media_feat_img)) {
+      $feat_media_node = node_load($source->field_penton_link_media_feat_img[LANGUAGE_NONE][0]['target_id']);
+      $medium_img_url = $feat_media_node ?
+        image_style_url('tax_top_stories_2_3_standard',
+          $feat_media_node->field_penton_media_image[LANGUAGE_NONE][0]['uri']) : "";
+      $thumbnail_media_url = $feat_media_node ?
+        image_style_url('tax_thumbs_standard',
+          $feat_media_node->field_penton_media_image[LANGUAGE_NONE][0]['uri']) : "";
+
+      $item->elements[] = array(
+        'key' => 'media:content',
+        'value' => array(
+          array(
+            'key' => 'media:thumbnail',
+            'value' => '1',
+            'attributes' => array('url' => $thumbnail_media_url),
+          ),
+          array(
+            'key' => 'media:content',
+            'value' => '1',
+            'attributes' => array(
+              'url' => $medium_img_url,
+              'medium' => 'image',
+            ),
+          ),
+          array(
+            'key' => 'media:title',
+            'value' => $feat_media_node->title,
+            'attributes' => array('type' => 'html'),
+          ),
+        ),
+      );
+    }
+    $vars['item_elements'] = empty($item->elements) ? '' : format_xml_elements($item->elements);
+  }
+}

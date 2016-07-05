@@ -1,0 +1,243 @@
+<?php
+/**
+ * @file
+ * A module to interact with Eloqua API.
+ */
+
+/**
+ * Site name.
+ */
+define('PENTON_ELOQUA_API_SITE_FIELD', 'content_pillar_site');
+
+/**
+ * Implements hook_permission().
+ */
+function penton_eloqua_api_permission() {
+  return array(
+    'administer Eloqua settings' => array(
+      'title' => 'Administer Eloqua Settings',
+      'description' => 'Administer Eloqua platform integration settings',
+    ),
+  );
+}
+
+/**
+ * Implements hook_init().
+ */
+function penton_eloqua_api_init() {
+  drupal_add_js(drupal_get_path('module', 'penton_eloqua_api') . '/js/eloqua_tracking.js');
+  $json = json_encode(array(
+    'fields' => penton_eloqua_api_get_name_params(),
+  ));
+  drupal_add_js("Drupal.settings.penton_eloqua_api = {$json};", 'inline');
+  drupal_add_js(drupal_get_path('module', 'penton_eloqua_api') . '/js/cookies.helper.js');
+  drupal_add_js(array(
+    'penton_eloqua_api' => array(
+      'eloqua_site_id' => variable_get('penton_eloqua_api_site_id'),
+      'tracking_enabled' => variable_get('penton_eloqua_api_tracking_enabled'),
+    ),
+  ), 'setting');
+}
+
+/**
+ * Get permitted $_GET params.
+ */
+function penton_eloqua_api_get_name_params() {
+  $default = array(
+    'nl',
+    'utm_rid',
+  );
+
+  return variable_get('penton_eloqua_api_permitted_params', $default);
+}
+
+/**
+ * Form for save permitted Eloqua variable.
+ */
+function penton_eloqua_api_save_form_params() {
+  $form = array();
+
+  $form['penton_eloqua_api_permitted_params'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Eloqua Newsletter Variables'),
+    '#default_value' => implode(', ', penton_eloqua_api_get_name_params()),
+    '#description' => t('Enter comma separated values'),
+  );
+
+  $form['#submit'][] = 'penton_eloqua_api_save_form_params_submit';
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save configuration'),
+  );
+
+  return $form;
+}
+
+/**
+ * Form submit for save permitted Eloqua variable.
+ */
+function penton_eloqua_api_save_form_params_submit(&$form, &$form_state) {
+  if (!empty($form_state['values']['penton_eloqua_api_permitted_params'])) {
+    $variables = explode(',', $form_state['values']['penton_eloqua_api_permitted_params']);
+    $variables = array_map('trim', $variables);
+    $variables = array_map('strtolower', $variables);
+    variable_set('penton_eloqua_api_permitted_params', $variables);
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function penton_eloqua_api_menu() {
+  $items = array();
+
+  $items['admin/config/services/penton_eloqua_api'] = array(
+    'title' => 'Penton Eloqua API',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_eloqua_api_api_settings'),
+    'access arguments' => array('administer Eloqua settings'),
+    'file' => 'penton_eloqua_api.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['admin/config/services/penton_eloqua_api/api_settings'] = array(
+    'title' => 'API Settings',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+
+  $items['admin/config/services/penton_eloqua_api/mapping'] = array(
+    'title' => 'Eloqua Filed Mapping',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_eloqua_api_mapping'),
+    'access arguments' => array('administer Eloqua settings'),
+    'file' => 'penton_eloqua_api.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['admin/config/services/penton_eloqua_api/newsletter'] = array(
+    'title' => 'Eloqua Newsletter Variables',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_eloqua_api_save_form_params'),
+    'access arguments' => array('administer Eloqua settings'),
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['admin/config/services/penton_eloqua_api/user_tracking'] = array(
+    'title' => 'User Tracking',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_eloqua_api_tracking'),
+    'access arguments' => array('administer Eloqua settings'),
+    'file' => 'penton_eloqua_api.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function penton_eloqua_api_form_alter(&$form, &$form_state, $form_id) {
+  $user_update_forms = array(
+    'user_register_form',
+    'user_profile_form',
+    'penton_user_register_advanced_form',
+    'penton_user_register_basic_form',
+    'penton_user_register_advanced_questions_form',
+  );
+  $initial_register_forms = array(
+    'penton_user_register_basic_form',
+    'penton_user_register_advanced_form',
+    'penton_user_register_email_this_form',
+    'penton_user_register_newsletter_signup_form',
+  );
+  if (in_array($form_id, $user_update_forms)) {
+    $form['#submit'][] = 'penton_eloqua_api_update_user_submit';
+  }
+  if (in_array($form_id, $initial_register_forms)) {
+    $form['#submit'][] = 'penton_eloqua_api_send_user_guid';
+  }
+}
+
+/**
+ * Submit function to send user info to Eloqua.
+ */
+function penton_eloqua_api_update_user_submit($form, &$form_state) {
+  // Send user info to Eloqua.
+  penton_eloqua_api_send_user_to_eloqua();
+}
+
+/**
+ * Send user GUID to Eloqua.
+ */
+function penton_eloqua_api_send_user_guid($form, $form_state) {
+  $site_id = variable_get('penton_eloqua_api_site_id');
+  $form_html_name = variable_get('penton_eloqua_api_reg_form_html_name');
+  if (empty($site_id) || empty($form_html_name) || empty($form_state['input']['elqCustomerGUID'])) {
+    return;
+  }
+  $curl = curl_init();
+  curl_setopt_array($curl, array(
+    CURLOPT_RETURNTRANSFER => 1,
+    CURLOPT_URL => "http://s${site_id}.t.eloqua.com/e/f2",
+    CURLOPT_POST => 1,
+    CURLOPT_POSTFIELDS => array(
+      'elqSiteId' => $site_id,
+      'elqCustomerGUID' => $form_state['input']['elqCustomerGUID'],
+      'elqCookieWrite' => '0',
+      'elqFormName' => $form_html_name,
+      'emailAddress' => $form_state['values']['mail'],
+    ),
+
+  ));
+  curl_exec($curl);
+}
+
+/**
+ * Sends new registered user to eloqua.
+ */
+function penton_eloqua_api_send_user_to_eloqua($uid = NULL) {
+  global $user;
+  if (!is_null($uid)) {
+    $account = user_load($uid);
+  }
+  else {
+    $account = $user;
+  }
+
+  $eloqua_api_enabled = variable_get('penton_eloqua_api_enabled', '0');
+  $eloqua_form_id = variable_get('penton_eloqua_api_reg_form_id', '0');
+  if ($eloqua_api_enabled != '0' && $eloqua_form_id != '0' && $account->uid > 1) {
+    $build_form_data = $account;
+    $build_form_data->{PENTON_ELOQUA_API_SITE_FIELD} = variable_get('site_name', 'CONTENT_PILLAR');
+
+    include_once drupal_get_path('module', 'penton_eloqua_api') . '/includes/penton_eloqua_api.helper.inc';
+    penton_eloqua_api_submit_form($eloqua_form_id, $build_form_data);
+  }
+}
+
+/**
+ * Returns array of fields from field_penton_profile.
+ *
+ * @return array
+ *   Array of profile fields.
+ */
+function _penton_eloqua_api_get_profile_fields() {
+  $profile_fields = array(
+    'first_name' => 'First Name',
+    'middle_name' => 'Middle Name',
+    'last_name' => 'Last Name',
+    'organisation_name' => 'Company',
+    'country' => 'Country',
+    'administrative_area' => 'Administrative Area',
+    'sub_administrative_area' => 'Sub Administrative Area',
+    'locality' => 'Locality',
+    'dependent_locality' => 'Dependent Locality',
+    'postal_code' => 'Postal Code',
+    'thoroughfare' => 'Thoroughfare',
+    'premise' => 'Premise',
+    'sub_premise' => 'Sub Premise',
+  );
+  return $profile_fields;
+}

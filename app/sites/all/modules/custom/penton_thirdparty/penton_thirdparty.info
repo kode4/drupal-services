@@ -1,0 +1,14 @@
+name = Penton Thirdparty
+package = Penton
+description = Third party module. This will enable required third party modules
+core = 7.x
+version = "7.x-0.1"
+dependencies[] = amazons3
+dependencies[] = apachesolr
+dependencies[] = apachesolr_user
+dependencies[] = apachesolr_term
+dependencies[] = apachesolr_multisitesearch
+dependencies[] = apachesolr_autocomplete
+dependencies[] = apachesolr_views
+dependencies[] = field_limelight
+dependencies[] = soundcloudfield

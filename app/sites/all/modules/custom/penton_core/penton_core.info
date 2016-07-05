@@ -1,0 +1,10 @@
+name = Penton Core
+package = Penton
+description = Core Penton module
+core = 7.x
+version = "7.x-0.1"
+dependencies[] = metatag
+
+files[] = tests/penton_core_access.test
+
+files[] = includes/pentonmailsystem.mail.inc

@@ -1,0 +1,238 @@
+<?php
+/**
+ * @file
+ * Provides Related content and Inline Related content.
+ */
+
+/**
+ * Implements hook_node_view().
+ *
+ * Maybe better use hook_field_formatter_view().
+ * But hook_field_formatter_view not work for extern fields after Drupal 7.38.
+ */
+function penton_related_content_node_view($node, $view_mode, $langcode) {
+  $except_view_mode = array(
+    'rss',
+  );
+  if ($node->type == 'article' && !in_array($view_mode, $except_view_mode) && !empty($node->body[LANGUAGE_NONE][0]['safe_value'])) {
+    $body_item_with_inline = _penton_related_content_add_inline_related($node, $node->body[LANGUAGE_NONE][0]['safe_value']);
+    $node->body[LANGUAGE_NONE][0]['safe_value'] = $body_item_with_inline;
+    $node->content['body'][0]['#markup'] = $body_item_with_inline;
+  }
+}
+
+/**
+ * Return html with Inline Related Article.
+ *
+ * @return string
+ *   returns a string with html.
+ */
+function _penton_related_content_add_inline_related($node, $field_html) {
+  $i_r_text = '<b>Related:</b> ';
+  $inline_related_nodes = _penton_related_content_get_inline_related_nodes($node);
+  $paragraphs = preg_split('/^<p>/m', $field_html, NULL, PREG_SPLIT_NO_EMPTY);
+  $out = '';
+  foreach ($paragraphs as $key => $paragraph) {
+    $out .= '<p>' . $paragraph;
+    if (($key == 1 || $key == 3) && !empty($inline_related_nodes)) {
+      $rel_node = array_shift($inline_related_nodes);
+      $out .= '<p class="inline-related">' . $i_r_text . l($rel_node->title, 'node/' . $rel_node->nid) . '</p>';
+    }
+  }
+  return $out;
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function penton_related_content_block_info() {
+  $blocks = array();
+  $blocks['article_related'] = array(
+    'info' => t('Article Related Content'),
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function penton_related_content_block_view($delta = '') {
+  $block = array();
+  switch ($delta) {
+    case 'article_related':
+      $block['content'] = _penton_related_content_related_content_block();
+      break;
+  }
+  return $block;
+}
+
+/**
+ * Block with Related Articles and Pages.
+ *
+ * @return array
+ *   returns a renderable array of block content.
+ */
+function _penton_related_content_related_content_block() {
+  $node = menu_get_object();
+  $related_nodes = _penton_related_content_get_related_nodes($node);
+
+  $block = array();
+  if (!empty($node) && !empty($related_nodes)) {
+    $block = array('#prefix' => '<div class="related-articles-heading">' . t('Related') . '</div>');
+    $block['row'] = array(
+      '#prefix' => '<div class="related-articles-wrapper">',
+      '#suffix' => '</div>',
+    );
+    foreach ($related_nodes as $r_node) {
+      $block['row'][] = _penton_related_content_render_article($r_node);
+    }
+  }
+  return $block;
+}
+
+/**
+ * Return Related content for article.
+ *
+ * @return array
+ *   returns a array of nodes.
+ */
+function _penton_related_content_get_related_nodes($article) {
+  $related_field_items = field_get_items('node', $article, 'field_penton_related_content');
+  if (!$related_field_items) {
+    $related_field_items = array();
+  }
+  $relater_field_items_fix = _penton_related_content_get_related_nodes_field_items($article, $related_field_items);
+  $related_ids = array_column($relater_field_items_fix, 'target_id');
+  $related_nodes = entity_load('node', $related_ids);
+  return $related_nodes;
+}
+
+/**
+ * Return Related content for article.
+ *
+ * @return array
+ *   returns a array of nodes.
+ */
+function _penton_related_content_get_related_nodes_field_items($article, $items) {
+  // Delete repeating nids.
+  $related_ids = $items;
+  $inline_related_items = _penton_related_content_get_inline_related_nodes_field_items($article);
+  $inline_related_ids = array_column($inline_related_items, 'target_id');
+  foreach ($related_ids as $key => $item) {
+    if (in_array($item['target_id'], $inline_related_ids)) {
+      unset($related_ids[$key]);
+    }
+  }
+  $related_count = count($related_ids);
+  if ($related_count < 4
+      && !empty($category = field_get_items('node', $article, 'field_penton_primary_category'))
+      && !empty($category[0]['tid'])) {
+    $query = db_select('taxonomy_index', 't');
+    $query->addTag('node_access');
+    $query->leftJoin('field_data_field_penton_published_datetime', 'f', 'f.entity_id = t.nid');
+    $query->join('node', 'n', 'n.nid = t.nid');
+    $query->condition('n.type', 'article')
+        ->condition('t.tid', $category[0]['tid'])
+        ->condition('t.nid', array_merge($inline_related_ids, array_column($related_ids, 'target_id'), array($article->nid)), 'NOT IN');
+    $query->range(0, 4 - $related_count);
+    $query->addField('t', 'nid', 'target_id');
+    $query->orderBy('f.field_penton_published_datetime_value', 'DESC');
+    $query->orderBy('n.changed', 'DESC');
+    $nodes = $query->execute()->fetchAllAssoc('target_id', PDO::FETCH_ASSOC);
+    $related_ids = array_merge($related_ids, $nodes);
+  }
+  elseif ($related_count > 4) {
+    $related_ids = array_slice($related_ids, 0, 4);
+  }
+  return $related_ids;
+}
+
+/**
+ * Return Inline Related content for article.
+ *
+ * @return array
+ *   returns a array of nodes.
+ */
+function _penton_related_content_get_inline_related_nodes($article) {
+  $inline_related = _penton_related_content_get_inline_related_nodes_field_items($article);
+  $inline_related_ids = array_column($inline_related, 'target_id');
+  $inline_related_nodes = entity_load('node', $inline_related_ids);
+  return $inline_related_nodes;
+}
+
+/**
+ * Return Inline Related content for article.
+ *
+ * @return array
+ *   returns a array of nodes.
+ */
+function _penton_related_content_get_inline_related_nodes_field_items($article) {
+  $inline_related_ids = field_get_items('node', $article, 'field_penton_inline_related');
+  if (!$inline_related_ids) {
+    $inline_related_ids = array();
+  }
+  $inline_related_count = count($inline_related_ids);
+
+  if ($inline_related_count > 2) {
+    $inline_related_ids = array_slice($inline_related_ids, 0, 2);
+  }
+  return $inline_related_ids;
+}
+
+/**
+ * Related Article render array.
+ *
+ * @return array
+ *   returns a renderable array of Article.
+ */
+function _penton_related_content_render_article($node) {
+  $classes = array(
+    'small-article',
+    empty($node->field_penton_link_media_feat_img) ? 'no-preview-image' : 'preview-image',
+  );
+  $block = array(
+    '#prefix' => '<a href="' . url('node/' . $node->nid) . '" class="small-article-link"><article class="' . implode(' ', $classes) . '">',
+    '#suffix' => '</article></a>',
+  );
+
+  $image_ids = field_get_items('node', $node, 'field_penton_link_media_feat_img');
+  if (!empty($image_ids)) {
+    $image_entity = entity_load('node', array($image_ids[0]['target_id']));
+    if (!empty($image_entity) && $images = field_get_items('node', array_shift($image_entity), 'field_penton_media_image')) {
+      $image = array_shift($images);
+      $block['img'] = array(
+        "#markup" => theme_retina_image(array(
+          'path' => $image['uri'],
+          'style_name' => 'article_related_thumb_standard',
+          'alt' => $image['alt'] ? $image['alt'] : $node->title,
+        ), 'article_related_thumb_retina'),
+        '#prefix' => '<div class="img-crop">',
+        '#suffix' => '</div>',
+      );
+    }
+  }
+
+  $block['content'] = array(
+    '#prefix' => '<div class="small-article__inner">',
+    '#suffix' => '</div>',
+  );
+  $block['content']['title'] = array(
+    '#markup' => '<div class="small-article__inner-title">' . $node->title . '</div>',
+  );
+  if (!empty($node->field_penton_native_advertising[LANGUAGE_NONE][0]['value'])) {
+    $block['content']['title']['#markup'] = '<span class="small-article__inner-sponsored-label">Sponsored Content</span>' . $block['content']['title']['#markup'];
+  }
+  if (!empty($dates = field_get_items('node', $node, 'field_penton_published_datetime'))) {
+    $date = array_shift($dates);
+    $timestamp = strtotime($date['value']);
+    $block['content']['date'] = array(
+      '#prefix' => '<span>',
+      '#suffix' => '</span>',
+      'date' => array(
+        '#markup' => format_date($timestamp, 'article_date_format', '', $date['timezone']),
+      ),
+    );
+  }
+
+  return $block;
+}

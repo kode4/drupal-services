@@ -1,0 +1,39 @@
+diff --git a/term_authoring_info.module b/term_authoring_info.module
+index 2c81764..1875d9c 100644
+--- a/term_authoring_info.module
++++ b/term_authoring_info.module
+@@ -179,15 +179,19 @@ function term_authoring_info_taxonomy_term_insert($term) {
+  */
+ function term_authoring_info_save($term) {
+   if (variable_get('term_authoring_info_vocab_' . $term->vocabulary_machine_name . '_showfield', 0)) {
++
+     // A user might assign the term author by entering a user name in the term
+     // form, which we then need to translate to a user ID.
+     if (isset($term->author)) {
+       if ($account = user_load_by_name($term->author)) {
+         $term->uid = $account->uid;
+       }
+-      else {
+-        $term->uid = 0;
+-      }
++    }
++
++    // Determine if the user ID still hasn't been defined.
++    if (!isset($term->uid)) {
++      global $user;
++      $term->uid = $user->uid;
+     }
+ 
+     // The created timestamp.
+@@ -201,7 +205,10 @@ function term_authoring_info_save($term) {
+ 
+     db_merge('term_authoring_info')->key(array('tid' => $term->tid))->fields(array(
+       'uid' => $term->uid,
+-      'created' => $term->created,
++      // For some reason, the 'created' date sometimes gets lost during this merge (such
++      // as when the term form is embedded as an Inline Entity Form). Leaving 'created'
++      // blank returns errors; so use the 'changed' date instead, which never gets lost.
++      'created' => (!empty($term->created) ? $term->created : $term->changed),
+       'changed' => $term->changed,
+     ))->execute();
+   }

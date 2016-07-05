@@ -1,0 +1,1475 @@
+<?php
+/**
+ * @file
+ * An field using the Field Types API to integrate videos from http://limelight.com
+ */
+
+
+/**
+ * Implements hook_permission().
+ * @return array permissions
+ */
+function field_limelight_permission() {
+  return array(
+    'administer field limelight' => array(
+      'title' => t('Administer field limelight'),
+      'description' => t('Perform administration tasks for the field limelight - limelight.com settings.'),
+    ),
+  );
+}
+
+
+/**
+ * Implements hook_menu().
+ */
+function field_limelight_menu() {
+
+  $items['admin/config/media/field_limelight'] = array(
+    'title' => 'Field limelight.com settings',
+    'description' => 'Administer the field settings for the limelight.com settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('field_limelight_admin_settings_form'),
+    'access arguments' => array('administer field limelight'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'field_limelight.admin.inc',
+  );
+  return $items;
+
+}
+
+
+/**
+ * Implements hook_field_info().
+ *
+ * Provides the description of the field.
+ */
+function field_limelight_field_info() {
+
+  return array(
+    // We name our field as the associative name of the array.
+    'field_limelight' => array(
+      'label' => t('Limelight video'),
+      'description' => t('Field to upload videos to http://limelight.com.'),
+      'default_widget' => 'field_limelight_widget_link',
+      'default_formatter' => 'field_limelight_formatter_link',
+      'settings' => array(
+        'uri_scheme' => variable_get('file_default_scheme', 'public'),
+      ),
+      'instance_settings' => array(
+        'file_extensions' => 'mov swf avi mp4',
+        'file_directory' => '',
+        'max_filesize' => '',
+        'title_field' => 0,
+      ),
+    ),
+  );
+}
+
+
+/**
+ * Implements hook_field_settings_form().
+ */
+function field_limelight_field_settings_form($field, $instance) {
+  $form = array();
+  return $form;
+}
+
+
+/**
+ * Implements hook_field_instance_settings_form().
+ */
+function field_limelight_field_instance_settings_form($field, $instance) {
+  $form = array();
+  return $form;
+}
+
+
+/**
+ * Implements hook_field_validate().
+ *
+ */
+function field_limelight_field_validate($entity_type, $entity, $field, $instance, $langcode, &$items, &$errors) {
+  if ((!empty($items))) {
+    foreach ($items as $delta => &$item) {
+
+      // if a media id for reusing a video from limelight.com ist set
+      if (!empty($item['reuse_limelight_media_id'])) {
+
+        // if also a file id for a new upload is set
+        if (!empty($item['fid'])) {
+          form_set_error('upload', t('You can either reuse a video from limelight.com Or you can upload a new video - but not both!'));
+        }
+
+      }
+
+    }
+  }
+
+}
+
+
+/**
+ * Build the data for reusing a media id from limelight.com
+ * @param $entity_type
+ * @param $entity
+ * @param $item
+ */
+function field_limelight_build_reuse_media_id_data($entity_type, $entity, &$item) {
+  global $user;
+
+  $field_name = field_limelight_get_bundle_fieldname($entity_type, $entity->type);
+
+  // CHECK if a media id for reusage was posted
+  if (!empty($item)) {
+    if (!empty($item['reuse_limelight_media_id'])) {
+      $media_id = $item['reuse_limelight_media_id'];
+    }
+  }
+  else {
+    if (!empty($_POST[$field_name][LANGUAGE_NONE][0]['reuse_limelight_media_id'])) {
+      $media_id = $_POST[$field_name][LANGUAGE_NONE][0]['reuse_limelight_media_id'];
+    }
+  }
+
+  if (!empty($media_id)) {
+    $item['limelight_media_id'] = $media_id;
+
+    // get the video meta data from limelight.com
+    $params['media_id'] = $item['limelight_media_id'];
+    field_limelight_get_meta_data($params);
+
+    if (!empty($params)) {
+      $item['title'] = $params['title'];
+      $item['description'] = $params['description'];
+
+      // save a dummy file in the local Drupal storage
+      $file = new stdClass();
+      $file->uid = $user->uid;
+      $file->status = 1;
+      $file->filename = $params['title'];
+      $file->uri = 'public://dummy' . time();
+      $file->filemime = 'limelight.com video';
+      $file->source = $field_name . '_und_0';
+      $file->destination = '';
+
+      if (@file_save($file)) {
+        if (!empty($file->fid)) {
+          $item['fid'] = $file->fid;
+        }
+      }
+
+    }
+  }
+
+}
+
+
+/**
+ * Implements hook_field_presave().
+ */
+function field_limelight_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+
+  // if no items are set
+  if (empty($items)) {
+    // check if there was a media id selected for reuse of limelight.com in stead of a new video upload
+    $item = array();
+    field_limelight_build_reuse_media_id_data($entity_type, $entity, $item);
+    if (!empty($item)) {
+      $items[0] = $item;
+    }
+  }
+
+  file_field_presave($entity_type, $entity, $field, $instance, $langcode, $items);
+}
+
+
+/**
+ * Implements hook_field_load().
+ */
+function field_limelight_field_load($entity_type, $entities, $field, $instances, $langcode, &$items, $age) {
+  file_field_load($entity_type, $entities, $field, $instances, $langcode, $items, $age);
+}
+
+
+/**
+ * Implements hook_field_insert().
+ */
+function field_limelight_field_insert($entity_type, $entity, $field, $instance, $langcode, &$items) {
+
+  // if no items are set
+  if (empty($items)) {
+    // check if there was a media id selected for reuse of limelight.com instead of a new video upload
+    $item = array();
+    field_limelight_build_reuse_media_id_data($entity_type, $entity, $item);
+    if (!empty($item)) {
+      $items[0] = $item;
+    }
+  }
+
+  file_field_insert($entity_type, $entity, $field, $instance, $langcode, $items);
+}
+
+
+/**
+ * Implements hook_field_update().
+ */
+function field_limelight_field_update($entity_type, $entity, $field, $instance, $langcode, &$items) {
+
+  if (!empty($items)) {
+    foreach ($items as $item) {
+
+      if (!empty($item['fid']) && !empty($item['limelight_media_id'])) {
+        // if there is already a video with a media id from limelight.com
+        // => update it on limelight.com
+        field_limelight_update_limelight_media_properties(array('title' => $item['title'],
+          'description' => $item['description'], 'media_id' => $item['limelight_media_id']));
+
+        // also update the entries in the local Drupal database
+        field_limelight_update_local_media_properties($item);
+
+      }
+
+    }
+  }
+
+  // if no items are set
+  if (empty($items)) {
+    // check if there was a media id selected for reuse of limelight.com instead of a new video upload
+    $item = array();
+    field_limelight_build_reuse_media_id_data($entity_type, $entity, $item);
+    if (!empty($item)) {
+      $items[0] = $item;
+    }
+  }
+
+  file_field_update($entity_type, $entity, $field, $instance, $langcode, $items);
+}
+
+
+/**
+ * Update the file name in the table file_managed
+ * @param array $item
+ */
+function field_limelight_update_local_media_properties($item) {
+  if (!empty($item['fid'])) {
+    db_update('file_managed') // Table name no longer needs {}
+      ->fields(array(
+        'filename' => $item['title'],
+      ))
+      ->condition('fid', $item['fid'], '=')
+      ->execute();
+  }
+}
+
+
+/**
+ * Get the file from the Drupal file handling and upload it to limelight.com
+ * @param object $entity
+ * @param string $entity_type
+ * @param array $item
+ */
+function field_limelight_upload_video_to_limelight($entity, $entity_type, &$item) {
+
+  if (!empty($item['fid'])) {
+
+    // new video - not yet uploaded to limelight.com
+    // insert / upload
+    if (empty($item['limelight_media_id'])) {
+      // load the file
+      $files = file_load_multiple(array($item['fid']), array());
+      if (!empty($files)) {
+        foreach ($files as $file) {
+
+          if (!empty($file)) {
+
+            // upload the video to limelight.com
+            $limelight_params = field_limelight_upload_media(array('title' => $item['title'], 'file' => $file,
+              'description' => $item['description']));
+
+            // if we got a successfull response from limelight.com
+            // and got a media_id for the video
+            if (!empty($limelight_params['media_id'])) {
+              $item['limelight_media_id'] = $limelight_params['media_id'];
+
+              // publish the video on limelight.com
+              field_limelight_publish_unpublish_media(array('media_id' => $limelight_params['media_id'],
+                'status' => 'publish'));
+
+              // save the limelight.com media id to the file
+              field_limelight_save_media_id($entity, $entity_type, $item['fid'], $limelight_params['media_id']);
+
+              module_invoke_all('limelight_media_id_saved', $entity, $entity_type);
+
+
+              // remove the file on local storage, but only if it was uploaded to limelight.com
+              field_limelight_remove_media_from_local_storage($entity, $entity_type, $item, $file);
+
+            }
+
+          }
+
+        }
+      }
+      unset($files);
+    }
+
+  }
+
+}
+
+
+/**
+ * Implements hook_field_delete_revision().
+ */
+function field_limelight_field_delete_revision($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  file_field_delete_revision($entity_type, $entity, $field, $instance, $langcode, $items);
+}
+
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function field_limelight_field_is_empty($item, $field) {
+  return file_field_is_empty($item, $field);
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ *
+ */
+function field_limelight_field_formatter_info() {
+  return array(
+    // This formatter just displays the link field
+    'field_limelight_formatter_link' => array(
+      'label' => t('Limelight link formatter'),
+      'field types' => array('field_limelight'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function field_limelight_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+
+  switch ($display['type']) {
+    case 'field_limelight_formatter_link':
+
+      if (!empty($items)) {
+        foreach ($items as $delta => $item) {
+
+          $params = array();
+
+          // if still no limelight.com media id is available
+          if (empty($item['limelight_media_id'])) {
+
+            // first load the field again because of caching
+            field_limelight_get_media_id($entity, $entity_type);
+
+            // if the media id is still empty
+            // upload the video to limelight.com
+            if (empty($item['limelight_media_id'])) {
+              field_limelight_upload_video_to_limelight($entity, $entity_type, $item);
+            }
+
+          }
+
+
+          if (!empty($item['limelight_media_id'])) {
+
+            // get the video meta data from limelight.com
+            $params['media_id'] = $item['limelight_media_id'];
+            field_limelight_get_meta_data($params);
+
+            $element[$delta] = array(
+              '#element' => $item,
+              '#field' => $instance,
+              '#display' => $display,
+              '#params' => $params,
+              '#theme' => 'field_limelight_formatter_limelight_link',
+            );
+          }
+
+        }
+      }
+      break;
+
+  }
+
+  return $element;
+}
+
+
+/**
+ * Preprocess the theme field_limelight_formatter_limelight_link
+ * @param $vars
+ */
+function field_limelight_preprocess_field_limelight_formatter_limelight_link(&$vars) {
+
+  if (!empty($vars)) {
+    if (!empty($vars['params']['media_id'])) {
+      module_load_include('inc', 'field_limelight', 'field_limelight.admin');
+      $player_dimensions = field_limelight_admin_player_sizes();
+      $vars['player'] = variable_get('field_limelight_player', 'Player');
+      $vars['player_id'] = variable_get('field_limelight_player_id', '');
+      $vars['media_id'] = $vars['params']['media_id'];
+      $vars['width'] = $player_dimensions[$vars['player']]['width'];
+      $vars['height'] = $player_dimensions[$vars['player']]['height'];
+      $vars['channel_id'] = variable_get('field_limelight_channel_id', '');
+    }
+    else {
+      drupal_set_message(t('Video could not be loaded from limelight.com'), 'error');
+    }
+
+  }
+
+}
+
+
+/**
+ * Implements hook_theme().
+ */
+function field_limelight_theme() {
+  return array(
+    'field_limelight_formatter_limelight_link' => array(
+      'variables' => array('element' => NULL, 'field' =>  array(), 'display' => array(), 'params' => array()),
+      'file' => 'field_limelight.theme.inc',
+    ),
+    'field_limelight_form_upload_title' => array(
+      'variables' => array('element' => NULL),
+      'file' => 'field_limelight.theme.inc',
+    ),
+  );
+
+}
+
+
+
+/**
+ * Implements hook_field_widget_info().
+ *
+ */
+function field_limelight_field_widget_info() {
+  return array(
+    'field_limelight_widget_link' => array(
+      'label' => t('Limelight video'),
+      'field types' => array('field_limelight'),
+      'settings' => array(
+        'progress_indicator' => 'throbber',
+      ),
+      'behaviors' => array(
+        'multiple values' => FIELD_BEHAVIOR_CUSTOM,
+        'default value' => FIELD_BEHAVIOR_NONE,
+      ),
+    ),
+  );
+}
+
+
+/**
+ * Implements hook_field_widget_form().
+ *
+ */
+function field_limelight_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+
+  $widget = $element;
+  $widget['#delta'] = $delta;
+
+  switch ($instance['widget']['type']) {
+
+    case 'field_limelight_widget_link':
+
+      // Add display_field setting to field because file_field_widget_form() assumes it is set.
+      $field['settings']['display_field'] = 0;
+
+      $elements = file_field_widget_form($form, $form_state, $field, $instance, $langcode, $items, $delta, $element);
+
+      foreach (element_children($elements) as $delta) {
+
+        // If not using custom extension validation, ensure this is an video.
+        $supported_extensions = array('mov', 'swf', 'avi', 'mp4');
+        $extensions = isset($elements[$delta]['#upload_validators']['file_validate_extensions'][0]) ? $elements[$delta]['#upload_validators']['file_validate_extensions'][0] : implode(' ', $supported_extensions);
+        $extensions = array_intersect(explode(' ', $extensions), $supported_extensions);
+        $elements[$delta]['#upload_validators']['file_validate_extensions'][0] = implode(' ', $extensions);
+
+        // Add all extra functionality provided by the field limelight widget.
+        $elements[$delta]['#process'][] = 'field_limelight_field_widget_process';
+      }
+
+      if ($field['cardinality'] == 1) {
+        // If there's only one field, return it as delta 0.
+        if (empty($elements[0]['#default_value']['fid'])) {
+          $elements[0]['#description'] = theme('file_upload_help', array('description' => $instance['description'], 'upload_validators' => $elements[0]['#upload_validators']));
+        }
+      }
+      else {
+        $elements['#file_upload_description'] = theme('file_upload_help', array('upload_validators' => $elements[0]['#upload_validators']));
+      }
+      return $elements;
+
+  }
+
+  return $element;
+}
+
+
+
+/**
+ * An element #process callback for the image_image field type.
+ *
+ * Expands the image_image type to include the alt and title fields.
+ *
+ * @param $element
+ * @param $form_state
+ * @param $form
+ * @return $element
+ *
+ */
+function field_limelight_field_widget_process($element, &$form_state, $form) {
+  $item = $element['#value'];
+  $item['fid'] = $element['fid']['#value'];
+
+  // --------------------------------
+  // REUSAGE OF LIMELIGHT.COM VIDEOS
+  // --------------------------------
+
+  // display only if no video was previously uploaded
+  if (empty($item['fid'])) {
+    $limelight_media_list = field_limelight_get_limelight_videos();
+    $options = array('' => '-');
+    if (!empty($limelight_media_list)) {
+      foreach ($limelight_media_list as $media) {
+        $options[$media->media_id] = $media->title;
+      }
+    }
+
+    if (!empty($options)) {
+
+      $default_value = ''; // @todo
+
+      $element['reuse_limelight_media_id'] = array(
+        '#type' => 'select',
+        '#title' => t('Reuse a video from limelight.com'),
+        '#description' => t('If you want to reuse a video from limelight.com, please select it from the list'),
+        '#options' => $options,
+        '#default_value' => $default_value,
+        '#weight' => -50,
+      );
+    }
+
+    // if a media id for reusage is available - hide the upload form
+    if (!empty($default_value)) {
+      $element['upload']['#type'] = 'hidden';
+    }
+
+  }
+
+
+  // --------------------------------------
+  // UPLOAD OF NEW VIDEOS TO LIMELIGHT.COM
+  // --------------------------------------
+
+  $element['upload_title'] = array(
+    //'#markup' => t('Videoupload'),
+    '#weight' => -20,
+    '#theme' => 'field_limelight_form_upload_title',
+    //'#prefix' => '<div class="">',
+    //'#suffix' => '</div>',
+  );
+
+  // the title of the video on limelight.com
+  $element['title'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Video title'),
+    '#default_value' => isset($item['title']) ? $item['title'] : '',
+    '#description' => t('The title is used for the video title.'),
+    '#maxlength' => 1024,
+    '#required' => TRUE,
+  );
+
+  // the description of the video on limelight.com
+  $element['description'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Video description'),
+    '#default_value' => isset($item['description']) ? $item['description'] : '',
+    '#description' => t('The description is used the video description.'),
+    '#maxlength' => 1024,
+  );
+
+  // the media id of the video on limelight.com
+  $media_id =  isset($item['limelight_media_id']) ? $item['limelight_media_id'] : '';
+
+  // submit the media id as hidden value - needed!
+  $element['limelight_media_id'] = array(
+    '#type' => 'hidden',
+    '#value' => $media_id,
+  );
+
+  // if there is a media id, display it as a markup in the form
+  if (!empty($media_id)) {
+    $element['markup_media_id'] = array(
+      '#markup' => t('Limelight.com media id @id', array('@id' => $media_id)),
+    );
+  }
+
+  return $element;
+}
+
+
+/**
+ * Implementation of hook_cron().
+ */
+function field_limelight_cron() {
+
+  // check for videos on limelight.com
+  // which do not have a relation within our Drupal instance
+  // delete all these videos
+  if (variable_get('field_limelight_removed_locally_deleted_videos', FALSE)) {
+    field_limelight_cleanup_limelight_videos();
+  }
+
+}
+
+
+/**
+ * Get all instances of the limelight field.
+ * @return array $limelight_fields
+ */
+function field_limelight_get_field_instances() {
+  $limelight_fields = array();
+  $fields = field_info_field_map();
+  if (!empty($fields)) {
+    foreach ($fields as $field_name => $field) {
+      if ('field_limelight' == $field['type']) {
+        $limelight_fields[$field_name]['bundles'] = $field['bundles'];
+      }
+    }
+  }
+  return $limelight_fields;
+}
+
+
+/**
+ * Get the fieldname of this field for a bundle
+ * @param string $entity_type
+ * @param string $bundle
+ * @return string $name
+ * @throws Exception
+ */
+function field_limelight_get_bundle_fieldname($entity_type, $bundle) {
+
+  static $name;
+
+  if (empty($name)) {
+    if (empty($entity_type)) {
+      throw new Exception('Entity type is missing.');
+    }
+    if (empty($bundle)) {
+      throw new Exception('Bundle is missing.');
+    }
+
+    $fields_info = field_info_instances($entity_type, $bundle);
+
+    if (!empty($fields_info)) {
+      foreach ($fields_info as $field_name => $value) {
+        $field_info = field_info_field($field_name);
+        $type = $field_info['type'];
+
+        if (!empty($type)) {
+          if ('field_limelight' == $type) {
+            $name = $field_name;
+            break;
+          }
+        }
+
+      }
+    }
+  }
+
+  return $name;
+}
+
+
+/**
+ * Get the id of an entity
+ *  needed because the entity id belongs on the entity type
+ *
+ * @param $entity
+ * @param $entity_type
+ * @return $id
+ * @throws Exception
+ */
+function field_limelight_get_entity_id($entity, $entity_type) {
+
+  $id = 0;
+
+  if (empty($entity_type)) {
+    throw new Exception('Entity type is missing.');
+  }
+  if (empty($entity)) {
+    throw new Exception('Enttiy is missing.');
+  }
+
+  switch ($entity_type) {
+
+    case 'node':
+      $id = $entity->nid;
+      break;
+
+    case 'taxonomy_term':
+      $id = $entity->tid;
+      break;
+
+    case 'user':
+      $id = $entity->uid;
+      break;
+
+    default:
+      throw new Exception('Cannot identify the id of the entity - entity type: ' . $entity_type);
+      break;
+
+  }
+
+  return $id;
+}
+
+
+/**
+ * Load the limelight.com video media_id
+ * @param object $entity
+ * @param string $entity_type
+ * @return string $media_id
+ * @throws Exception
+ */
+function field_limelight_get_media_id($entity, $entity_type) {
+
+  $media_id = '';
+
+  if (empty($entity)) {
+    throw new Exception('Entity is missing.');
+  }
+  if (empty($entity_type)) {
+    throw new Exception('Entity type is missing.');
+  }
+
+  // get the fieldname of this field for these entity instance
+  $fieldname = field_limelight_get_bundle_fieldname($entity_type, $entity->type);
+
+  // get the entity id
+  $entity_id = field_limelight_get_entity_id($entity, $entity_type);
+
+  $query = db_select('field_data_' . $fieldname, 'flv');
+  $query->fields('flv', array($fieldname . '_limelight_media_id'));
+  $query->condition('flv.entity_id', $entity_id, '=');
+  $result = $query->execute();
+  while ($record = $result->fetchAssoc()) {
+    $media_id = $record[$fieldname . '_limelight_media_id'];
+  }
+
+  return $media_id;
+}
+
+
+/**
+ * Save the media id of the video
+ * builds the relation between the video fid in Drupal and the media_id of limelight.com
+ * @param $entity
+ * @param $entity_type
+ * @param $fid
+ * @param $media_id
+ * @throws Exception
+ */
+function field_limelight_save_media_id($entity, $entity_type, $fid, $media_id) {
+
+  if (empty($entity)) {
+    throw new Exception('Entity is missing.');
+  }
+  if (empty($entity_type)) {
+    throw new Exception('Entity type is missing.');
+  }
+  if (empty($fid)) {
+    throw new Exception('File id (fid) is missing.');
+  }
+  if (empty($media_id)) {
+    throw new Exception('Media id (media_id) is missing.');
+  }
+
+  // get the fieldname of this field for these entity instance
+  $fieldname = field_limelight_get_bundle_fieldname($entity_type, $entity->type);
+
+  // get the entity id
+  $entity_id = field_limelight_get_entity_id($entity, $entity_type);
+
+  $tables = array('field_data_', 'field_revision_');
+  if (!empty($tables)) {
+    foreach ($tables as $table) {
+      $query = db_update($table . $fieldname)
+        ->fields(array(
+          $fieldname . '_limelight_media_id' => $media_id,
+        ))
+        ->condition('entity_id', $entity_id);
+
+      $query->execute();
+
+    }
+  }
+
+}
+
+
+/**
+ * Delete the video file from the local Drupal storage
+ * @param $entity
+ * @param $entity_type
+ * @param $item
+ * @param $file
+ */
+function field_limelight_remove_media_from_local_storage($entity, $entity_type, $item, $file) {
+
+  // do not use file_delete($file, TRUE); because the file needs to be kept stored in the file_managed table
+  // delete the file from the local storage
+  drupal_unlink($file->uri);
+
+}
+
+
+
+/**
+ * Get the limelight.com account credentials
+ * @return array $credentials
+ */
+function field_limelight_get_limelight_credentials() {
+  $credentials = array();
+  $credentials['organization_id'] = variable_get('field_limelight_organization_id', '');
+  $credentials['access_key'] = variable_get('field_limelight_access_key', '');
+  $credentials['secret'] = variable_get('field_limelight_secret', '');
+  $credentials['channel_id'] = variable_get('field_limelight_channel_id', '');
+  return $credentials;
+}
+
+
+/**
+ * Build an limelight authenticate request
+ * see http://www.limelightvideoplatform.com/support/docs/content_api/#8.0
+ * LvpAuthUtil v1.1 10-Feb-11
+ * @param $http_verb
+ *  - 'get', 'post', 'put', or 'delete'
+ * @param $resource_url
+ *   see http://www.limelightvideoplatform.com/support/docs/content_api/#3.0
+ *   api.video.limelight.com/ + REST URI
+ *   list channels:
+ *     http://api.video.limelight.com/rest/organizations/<org id>/media/<media id>/channels.
+ *   List all properties for a specific media:
+ *     http://api.video.limelight.com/rest/organizations/<org id>/media/<media id>/properties.
+ *       http://api.video.limelight.com/rest/organizations/6d4242bd0cf94083a0195bfc2083e46e/media/3ffd040b522b4485b6d84effc750cd86/properties.xml
+ *   List the encodings for a specific media:
+ *     http://api.video.limelight.com/rest/organizations/<org id>/media/<media id>/encodings.
+ * @param $access_key
+ * @param $secret
+ * @param null $params
+ * @return string $url
+ */
+function field_limelight_build_authenticate_request($http_verb, $resource_url, $access_key, $secret, $params = NULL) {
+
+  $parsed_url = parse_url($resource_url);
+  // post|api.video.limelight.com|/rest/organizations/bfb3caa8e6204fea9a23ce855768fc93/channels
+  $str_to_sign = strtolower($http_verb . '|' . $parsed_url['host'] . '|' . $parsed_url['path']) . '|';
+  $url = $resource_url . '?';
+
+  if ($params == NULL) $params = array();
+
+  // post|api.video.limelight.com|/rest/organizations/bfb3caa8e6204fea9a23ce855768fc93/channels|access_key=ezU4jGTelX8UAsfaiWUcjWsn1mY=&expires=1298347550
+  if (!array_key_exists('expires', $params)) $params['expires'] = time() + 300;
+  $params['access_key'] = $access_key;
+
+  $keys = array_keys($params);
+  sort($keys);
+
+  foreach ($keys as $key) {
+    $str_to_sign .= $key . '=' . $params[$key] . '&';
+    $url .= rawurlencode($key) . '=' . rawurlencode($params[$key]) . '&';
+  }
+
+  $str_to_sign = chop($str_to_sign, '&');
+  $signature = base64_encode(hash_hmac('sha256', $str_to_sign, $secret, TRUE));
+  $url .= 'signature=' . rawurlencode($signature);
+
+  return $url;
+}
+
+
+/**
+ * Get the thumbnail urls from Limelight
+ * @param $params
+ *    $params['media_id']
+ *    $params['width']
+ *    $params['height']
+ * @return $data
+ */
+function field_limelight_get_thumbnails($params) {
+
+  // get the limelight.com account credentials
+  $credentials = field_limelight_get_limelight_credentials();
+
+  // Build the authentification url to get the thumbnails of the video
+  $resource_url = 'http://api.video.limelight.com/rest/organizations/' . $credentials['organization_id'] . '/media/' . $params['media_id'] . '/skimming_thumbnails.json';
+  $auth_url = field_limelight_build_authenticate_request('GET', $resource_url, $credentials['access_key'], $credentials['secret']);
+
+  $request = drupal_http_request($auth_url);
+  $data = '';
+  if (!empty($request->data)) {
+    $data = json_decode($request->data);
+  }
+  else {
+    drupal_set_message(t('Couldn\'t fetch the thumbnails.'), 'error');
+  }
+
+  return $data;
+}
+
+
+/**
+ * Get the meta data for a video from Limelight
+ * @param $params
+ *    $params['media_id']
+ */
+function field_limelight_get_meta_data(&$params) {
+
+  if (empty($params['media_id'])) {
+    throw new Exception('Can not fetch meta data - the media id is missing.');
+  }
+
+  // get the limelight.com account credentials
+  $credentials = field_limelight_get_limelight_credentials();
+
+  // Build the quthentification url to get the thumbnails of the video
+  $resource_url = 'http://api.video.limelight.com/rest/organizations/' . $credentials['organization_id'] . '/media/' .
+    $params['media_id'] . '/properties.json';
+  $auth_url = field_limelight_build_authenticate_request('GET', $resource_url, $credentials['access_key'], $credentials['secret']);
+
+  $request = drupal_http_request($auth_url);
+  $data = '';
+  if (!empty($request->data)) {
+    $data = (array) json_decode($request->data);
+  }
+  else {
+    drupal_set_message(t('Couldn\'t fetch the the video meta data.'), 'error');
+  }
+
+  if (!empty($data)) {
+    $params = array_merge($params, $data);
+  }
+
+}
+
+
+/**
+ * Get the state / status for a video from Limelight
+ *
+ * http://api.video.limelight.com/rest/organizations/<org id>/media/<media id>/properties/<property name>.{XML,JSON}
+ * exp. http://api.video.limelight.com/rest/organizations/6d4242bd0cf94083a0195bfc2083e46e/media/%203ffd040b522b4485b6d84effc750cd86/properties/state.xml
+ *
+ * @param $params
+ *    $params['media_id']
+ */
+function field_limelight_get_video_state(&$params) {
+
+  if (empty($params['media_id'])) {
+    throw new Exception('Can not fetch video state - the media id is missing.');
+  }
+
+  // get the limelight.com account credentials
+  $credentials = field_limelight_get_limelight_credentials();
+
+  // Build the quthentification url to get the thumbnails of the video
+  $resource_url = 'http://api.video.limelight.com/rest/organizations/' . $credentials['organization_id'] . '/media/' .
+    $params['media_id'] . '/properties/state.json';
+  //$auth_url = field_limelight_build_authenticate_request('GET', $resource_url, $credentials['access_key'], $credentials['secret']);
+
+  $request = drupal_http_request($resource_url);
+  $data = '';
+  if (!empty($request->data)) {
+    $data = (array) json_decode($request->data);
+  }
+  else {
+    drupal_set_message(t('Couldn\'t fetch the the video status.'), 'error');
+  }
+
+  if (!empty($data)) {
+    $params = array_merge($params, $data);
+  }
+
+}
+
+
+/**
+ * Upload a video to Limelight.com
+ *
+ * @param array $params
+ *   - title: the title of the video
+ *   - description: the description of the video
+ *   - file: the url to the file
+ * @return $limelight_params
+ *
+ * see http://support.video.limelight.com/support/docs/content_api/#4.0
+ * http://api.video.limelight.com/rest/organizations/<org id>/media.{XML,JSON}
+ * required parameters
+ *   - title = <the title of the media>
+ *   - media_file=<binary data for file> (This takes the form of a file part, in a multipart/form-data HTTP request)
+ * optional parameters
+ *   - add_to_channel = <the ID of a channel to which the newly uploaded media should be added>
+ * response
+ *   - Key-value pairs for all properties
+ * errors
+ *   - Missing required parameter
+ *   - Undefined property
+ *   - Invalid value
+ */
+function field_limelight_upload_media($params) {
+
+  $limelight_params = array();
+
+  // get the limelight.com account credentials
+  $credentials = field_limelight_get_limelight_credentials();
+
+  $upload_media_url = "http://api.video.limelight.com/rest/organizations/" . $credentials['organization_id'] . "/media";
+
+  // authenticate request
+  $signed_url = field_limelight_build_authenticate_request('POST', $upload_media_url, $credentials['access_key'], $credentials['secret']);
+
+  if (!empty($signed_url)) {
+
+    // get the real local path of the file for the upload
+    $url = '@' . drupal_realpath($params['file']->uri);
+    $post_params = array(
+      "title" => $params['title'],
+      "description" => $params['description'],
+      "media_file" => $url,
+      "add_to_channel" => $credentials['channel_id'], // channel id of channel videoquizzr on limelight
+    );
+
+    // perform the POST, passing in the array of parameters
+    // do not use drupal_http_request() - does not work for the fileupload
+    // that is why curl is used
+    $upload_response = field_limelight_do_post_curl($signed_url, 'POST', $post_params);
+
+    if (!empty($upload_response)) {
+      //display the media ID of the new upload on the screen
+      $response_obj = json_decode($upload_response);
+      if (!empty($response_obj)) {
+        $limelight_params = array();
+        if (property_exists($response_obj, 'media_id')) {
+          $limelight_params['media_id'] = $response_obj->media_id;
+        }
+        else {
+          $limelight_params['media_id'] = '';
+        }
+        if (property_exists($response_obj, 'original_filename')) {
+          $limelight_params['original_filename'] = $response_obj->original_filename;
+        }
+
+        if (empty($limelight_params['media_id'])) {
+          drupal_set_message(t('Videoupload to limelight.com failed. Got no no media id for the video.'), 'error');
+        }
+
+      }
+    }
+    else {
+      drupal_set_message(t('Videoupload to limelight.com failed. Got no response and no media id for the video.'), 'error');
+    }
+
+  }
+
+  return $limelight_params;
+}
+
+
+
+/**
+ * Update the media properties of a video on Limelight.com
+ * @param array $params
+ *   - title: the title of the video
+ *   - description: the description of the video
+ *   - media_id: the limelight.com media_id
+ *
+ * see http://support.video.limelight.com/support/docs/content_api/#9.2.4
+ * http://api.video.limelight.com/rest/organizations/<org id>/media/<media id>/properties
+ * Method: PUT
+ *  parameters
+ *   - title = <the title of the media>
+ *   - description = <the description of the media>
+ *   - ... see http://support.video.limelight.com/support/docs/content_api/#2.3
+ */
+function field_limelight_update_limelight_media_properties($params) {
+
+  // get the limelight.com account credentials
+  $credentials = field_limelight_get_limelight_credentials();
+
+  $upload_media_url = "http://api.video.limelight.com/rest/organizations/" . $credentials['organization_id'] . "/media/" . $params['media_id'] . "/properties";
+
+  // authenticate request
+  $signed_url = field_limelight_build_authenticate_request('PUT', $upload_media_url, $credentials['access_key'], $credentials['secret']);
+
+  if (!empty($signed_url)) {
+    //arrange the details of the upload in an array
+    $post_params = array("title" => $params['title'], "description" => $params['description'], "media_id" => $params['media_id']);
+
+    //perform the POST/PUT to limelight.com
+    field_limelight_do_post_curl($signed_url, 'PUT', $params);
+
+  }
+
+}
+
+
+/**
+ * (Un)Publish a media on limelight.com
+ * http://api.video.limelight.com/rest/organizations/<org id>/media/<media id>/{publish, unpublish}.{xml,json}
+ * @param array $params
+ *   - media_id: the limelight.com media_id
+ *   - status: publish or unpublish
+ *
+ * see http://support.video.limelight.com/support/docs/content_api/#5.1
+
+ */
+function field_limelight_publish_unpublish_media($params) {
+
+  // get the limelight.com account credentials
+  $credentials = field_limelight_get_limelight_credentials();
+
+  $upload_media_url = "http://api.video.limelight.com/rest/organizations/" . $credentials['organization_id'] .
+    "/media/" . $params['media_id'] . "/" . $params['status'];
+
+  // authenticate request
+  $signed_url = field_limelight_build_authenticate_request('POST', $upload_media_url, $credentials['access_key'], $credentials['secret']);
+
+  if (!empty($signed_url)) {
+    //arrange the details of the upload in an array
+    $post_params = array("media_id" => $params['media_id']);
+
+    //perform the POST/PUT to limelight.com
+    field_limelight_do_post('POST', $signed_url, $post_params);
+
+  }
+
+}
+
+
+/**
+ * (Un)Publish a media on limelight.com
+ * http://api.video.limelight.com/rest/organizations/<org id>/media/<media id>
+ * Method: DELETE
+ * @param array $params
+ *   - media_id: the limelight.com media_id
+ *
+ * see http://support.video.limelight.com/support/docs/content_api/#6.1
+ */
+function field_limelight_delete_media($params) {
+
+  // get the limelight.com account credentials
+  $credentials = field_limelight_get_limelight_credentials();
+
+  $delete_media_url = "http://api.video.limelight.com/rest/organizations/" . $credentials['organization_id'] .
+    "/media/" . $params['media_id'];
+
+  // authenticate request
+  $signed_url = field_limelight_build_authenticate_request('DELETE', $delete_media_url, $credentials['access_key'], $credentials['secret']);
+
+  if (!empty($signed_url)) {
+
+    //perform the POST/PUT to limelight.com
+
+    $options = array(
+      'method' => 'DELETE',
+      'headers' => array("Content-Type" => "text/html;"),
+    );
+    drupal_http_request($signed_url, $options);
+
+  }
+
+}
+
+
+/**
+ * Perform the POST to limelight.com
+ * @param $method
+ * @param $url
+ * @param array $params
+ * @return mixed $response
+ */
+function field_limelight_do_post($method, $url, $params = array()) {
+
+  //this function will perform the POST using drupal_http_request
+
+  $boundary = '----WebKitFormBoundaryzn5sSWPDvmHE6QPU';
+
+  $data = field_limelight_multipart_encode($boundary, $params);
+
+  $options = array(
+    'method' => $method,
+    'data' => $data,
+    'headers' => array("Content-Type" => "multipart/form-data; boundary=$boundary", "Content-Length" => strlen($data)),
+  );
+
+  watchdog('limelight debug do post content length', t('field_limelight_do_post() - content length: @options', array('@options' => $options['headers']["Content-Length"])));
+
+  $response = drupal_http_request($url, $options);
+
+  return $response;
+}
+
+
+/**
+ * Upload the video file with curl
+ * @param $url
+ * @param $method
+ * @param array $params
+ * @return $response
+ */
+function field_limelight_do_post_curl($url, $method = 'POST', $params = array()) {
+  //this function will perform the POST using curl
+  // get the curl session object
+  $session = curl_init($url);
+
+  switch ($method) {
+
+    case 'PUT':
+      // Set the PUT options.
+      curl_setopt($session, CURLOPT_CUSTOMREQUEST, "PUT");
+      break;
+
+    case 'POST':
+    default:
+      // set the POST options.
+      curl_setopt($session, CURLOPT_POST, TRUE);
+      break;
+
+  }
+
+  curl_setopt($session, CURLOPT_POSTFIELDS, $params);
+  curl_setopt($session, CURLOPT_HEADER, FALSE);
+  curl_setopt($session, CURLOPT_RETURNTRANSFER, FALSE);
+  // do the POST and then close the session
+  $response = curl_exec($session);
+  curl_close($session);
+  return $response;
+}
+
+
+
+/**
+ * Encode the parameter values send to limelight.com.
+ * @param $boundary
+ * @param $params
+ * @return string $output
+ */
+function field_limelight_multipart_encode($boundary, $params) {
+  $output = "";
+  foreach ($params as $key => $value) {
+
+    $output .= "--$boundary\r\n\r\n";
+
+    if (!empty($key)) {
+      if ($key == 'media_file') {
+        $output .= field_limelight_multipart_enc_file($value);
+      }
+      else {
+        $output .= field_limelight_multipart_enc_text($key, $value);
+      }
+    }
+
+  }
+
+  $output .="--$boundary--";
+  return $output;
+}
+
+
+/**
+ * Encode the text parameter values send to limelight.com
+ * @param $name
+ * @param $value
+ * @return string
+ */
+function field_limelight_multipart_enc_text($name, $value) {
+  return "Content-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n\r\n";
+}
+
+/**
+ * Encode the file parameter values send to limelight.com
+ * @param $path
+ * @return $data
+ */
+function field_limelight_multipart_enc_file($path) {
+  if (substr($path, 0, 1) == "@") {
+    $path = substr($path, 1);
+  }
+  $filename = basename($path);
+  $mimetype = file_get_mimetype($path);
+  $file = file_get_contents($path);
+
+  if (empty($file)) {
+    throw new Exception('Couldn\'t load file.');
+  }
+
+  $data = "Content-Disposition: form-data; name=\"media_file\"; filename=\"$filename\"\r\n\r\n";
+  $data .= "Content-Transfer-Encoding: binary\r\n\r\n";
+  $data .= "Content-Type: $mimetype\r\n\r\n";
+  $data .= file_get_contents($file) . "\r\n";
+  return $data;
+}
+
+
+/**
+ * Get all channels on limelight.com for this account
+ * see http://support.video.limelight.com/support/docs/content_api/#3.2
+ */
+function field_limelight_get_limelight_channels() {
+
+  $channel_list = array();
+
+  // get the limelight.com account credentials
+  $credentials = field_limelight_get_limelight_credentials();
+
+  // http://api.video.limelight.com/rest/organizations/<org id>/channels/all.{XML,JSON}
+  $channels_media_url = "http://api.video.limelight.com/rest/organizations/" . $credentials['organization_id'] .
+    "/channels/all.json";
+
+  // authenticate request
+  $signed_url = field_limelight_build_authenticate_request('GET', $channels_media_url, $credentials['access_key'], $credentials['secret']);
+
+  if (!empty($signed_url)) {
+    //arrange the details of the upload in an array
+    $post_params = array();
+
+    //perform the GET to limelight.com
+    $response = field_limelight_do_post('GET', $signed_url, $post_params);
+
+    if (!empty($response)) {
+      $data = json_decode($response->data);
+      if (!empty($data)) {
+        $channel_list = $data->channel_list;
+      }
+    }
+  }
+
+  return $channel_list;
+}
+
+
+
+/**
+ * Get all media of the limelight account
+ * see http://support.video.limelight.com/support/docs/content_api/#3.2
+ */
+function field_limelight_get_limelight_videos() {
+
+  $debug = TRUE;
+
+  $media_list = array();
+
+  // get the limelight.com account credentials
+  $credentials = field_limelight_get_limelight_credentials();
+
+  //  http://api.video.limelight.com/rest/organizations/$org_id/media/search
+  $channel_media_url = "http://api.video.limelight.com/rest/organizations/" . $credentials['organization_id'];
+  //$channel_media_url .= "/media/search";
+  $channel_media_url .= "/channels/" . $credentials['channel_id'] . "/media";
+
+  // authenticate request
+  $signed_url = field_limelight_build_authenticate_request('GET', $channel_media_url, $credentials['access_key'], $credentials['secret']);
+
+  if (!empty($signed_url)) {
+    //arrange the details of the upload in an array
+    $post_params = array();
+
+    //perform the GET to limelight.com
+    $response = field_limelight_do_post('GET', $signed_url, $post_params);
+
+    if ($debug) {
+      watchdog('limelight debug', t('field_limelight_get_limelight_videos() - signed url: @url', array('@url' => $signed_url)));
+      watchdog('limelight debug', t('field_limelight_get_limelight_videos() - post params: @params', array('@params' => implode(',', $post_params))));
+      watchdog('limelight debug', t('field_limelight_get_limelight_videos() - response status message: @response', array('@response' => $response->status_message)));
+      watchdog('limelight debug', t('field_limelight_get_limelight_videos() - response code: @response', array('@response' => $response->code)));
+      watchdog('limelight debug', t('field_limelight_get_limelight_videos() - response data: @response', array('@response' => $response->data)));
+    }
+
+    if (!empty($response)) {
+      $data = json_decode($response->data);
+      if (!empty($data)) {
+        $media_list = $data->media_list;
+      }
+      else {
+        watchdog('limelight', t('The response->data property is empty when fetching the existing limelight.com videos.'));
+      }
+    }
+    else {
+      watchdog('limelight', t('Couldn\'t get a response from limelight.com for fetching the existing videos.'));
+    }
+  }
+  else {
+    watchdog('limelight', t('Couldn\'t connect to Limelight to fetch the videos.'));
+  }
+
+  return $media_list;
+}
+
+
+/**
+ * Get all media ids stored in Drupal
+ * so a video is related to this media id in limelight.com and in Drupal
+ */
+function field_limelight_get_drupal_media_ids() {
+  $media_ids = array();
+  $field_instances = field_limelight_get_field_instances();
+  if (!empty($field_instances)) {
+    foreach ($field_instances as $field_name => $field) {
+      $query = db_select('field_data_' . $field_name, 'fm');
+      $query->fields('fm', array($field_name . '_limelight_media_id'));
+      $result = $query->execute();
+      while ($record = $result->fetchAssoc()) {
+        $media_ids[$record[$field_name . '_limelight_media_id']] = $record[$field_name . '_limelight_media_id'];
+      }
+    }
+  }
+  return $media_ids;
+}
+
+
+/**
+ * Gets all videos from limelight and checks if there is a relation of the media id in Drupal
+ * if not delete the video on limelight.com
+ * reason: failed video uploads
+ */
+function field_limelight_cleanup_limelight_videos() {
+
+  $no_media_matches = array();
+
+  $media_list = field_limelight_get_limelight_videos();
+  $drupal_media_ids = field_limelight_get_drupal_media_ids();
+
+  if (!empty($media_list)) {
+    foreach ($media_list as $key => $media) {
+
+      // check if the media id of limelight is in the Drupal media ids
+      if (empty($drupal_media_ids[$media->media_id])) {
+        // media id is not in the Drupal media ids
+        // so there is no relation of the limelight video in Drupal
+        $no_media_matches[$media->media_id]['media_id'] = $media->media_id;
+        $no_media_matches[$media->media_id]['title'] = $media->title;
+      }
+
+    }
+
+    // Delete the media on limelight.com
+    if (!empty($no_media_matches)) {
+      foreach ($no_media_matches as $media_id => $media) {
+        $params = array('media_id' => $media_id);
+        field_limelight_delete_media($params);
+      }
+    }
+
+  }
+
+}

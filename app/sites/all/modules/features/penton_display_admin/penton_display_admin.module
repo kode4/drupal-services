@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Display Admin feature.
+ */
+
+include_once 'penton_display_admin.features.inc';

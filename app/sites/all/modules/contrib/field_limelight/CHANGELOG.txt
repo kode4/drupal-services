@@ -1,0 +1,3 @@
+field_limelight 7.x-1.0
+------------------------------
+Initial release of field_limelight module.

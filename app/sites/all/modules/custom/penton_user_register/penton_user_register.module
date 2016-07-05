@@ -1,0 +1,1366 @@
+<?php
+/**
+ * @file
+ * User registration process.
+ */
+
+define('PENTON_USER_REGISTER_FIELD_LENGTH_INCREMENT', 20);
+
+/**
+ * Implements hook_theme().
+ */
+function penton_user_register_theme(&$variables) {
+  $items = array();
+  // TODO: add ability to nest this templates in subthemes.
+  // To get rid of $theme_path_modals, simply name templates
+  // the same way as theme, replacing _ with -, e.g.
+  // penton_user_register_advanced_form => penton-user-register-advanced-form
+  // and remove 'path' from arrays.
+  $theme_path_modals = drupal_get_path('theme', 'penton_core_theme') . '/templates/modals';
+
+  $items['penton_user_register_advanced_form'] = array(
+    'render element' => 'form',
+    'path' => $theme_path_modals,
+    'template' => 'penton-modal-advanced-register-form',
+  );
+  $items['penton_user_register_basic_form'] = array(
+    'render element' => 'form',
+    'path' => $theme_path_modals,
+    'template' => 'penton-modal-basic-register-form',
+  );
+  $items['penton_newsletter_manager_newsletters_subscribe_form_full'] = array(
+    'render element' => 'form',
+    'path' => $theme_path_modals,
+    'template' => 'penton-modal-newsletters-subscription-form',
+  );
+  $items['penton_user_register_thank_you_form'] = array(
+    'render element' => 'form',
+    'path' => $theme_path_modals,
+    'template' => 'penton-modal-thank-you-form',
+  );
+  $items['penton_user_register_advanced_questions_form'] = array(
+    'render element' => 'form',
+    'path' => $theme_path_modals,
+    'template' => 'penton-modal-advanced-questions-form',
+  );
+
+  // TODO: add ability to nest this templates in subthemes.
+  $theme_path_user = drupal_get_path('theme', 'penton_core_theme') . '/templates/user';
+  $items['penton_user_register_newsletter_signup_form'] = array(
+    'render element' => 'form',
+    'path' => $theme_path_user,
+    'template' => 'penton-user-register-newsletter-signup-form',
+  );
+  $items['penton_user_register_email_this_form'] = array(
+    'render element' => 'form',
+    'path' => $theme_path_user,
+    'template' => 'penton-user-register-email-this-form',
+  );
+  $items['penton_user_register_email_thank_you_form'] = array(
+    'render element' => 'form',
+    'path' => $theme_path_user,
+    'template' => 'penton-user-register-email-thank-you-form',
+  );
+
+  $items['penton_user_register_email_this_article_mail'] = array(
+    'variables' => array('node' => NULL, 'account' => NULL, 'message' => NULL),
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function penton_user_register_permission() {
+  return array(
+    'administer User Registration settings' => array(
+      'title' => 'Administer User Registration Settings',
+      'description' => 'Administer User Registration settings',
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function penton_user_register_menu() {
+  $items = array();
+
+  $items['penton_user_register/basic_register_callback'] = array(
+    'page callback' => 'penton_user_register_basic_register_callback',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'delivery callback' => 'ajax_deliver',
+  );
+  $items['penton_ur_thank_you'] = array(
+    'title' => '',
+    'page callback' => 'penton_user_register_penton_ur_thank_you',
+    'access callback' => TRUE,
+  );
+
+  $items['admin/config/people/penton_register'] = array(
+    'title' => 'Penton User Registration',
+    'description' => 'Penton User Registration related settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_user_register_admin_settings'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer User Registration settings'),
+    'file' => 'penton_user_register.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function penton_user_register_menu_alter(&$items) {
+  $items['user/register']['page arguments'] = array('penton_user_register_advanced_form');
+}
+
+/**
+ * Implements hook_captcha_placement_map().
+ */
+function penton_user_register_captcha_placement_map() {
+  $placement_map['penton_user_register_advanced_form'] = array(
+    'path' => array(),
+    'key' => 'actions',
+    'weight' => 99,
+  );
+  $placement_map['penton_user_register_basic_form'] = array(
+    'path' => array(),
+    'key' => 'actions',
+    'weight' => 99,
+  );
+  $placement_map['penton_user_register_email_this_form'] = array(
+    'path' => array(),
+    'key' => 'actions',
+    'weight' => 99,
+  );
+  return $placement_map;
+}
+
+/**
+ * Implements hook_user_logout().
+ */
+function penton_user_register_user_logout($account) {
+  user_cookie_delete('nlsub');
+}
+
+/**
+ * Implements hook_mail().
+ *
+ * Prepare a message based on parameters.
+ */
+function penton_user_register_mail($key, &$message, $params) {
+  switch ($key) {
+    case 'email_this_article_form_key':
+      $message['to'] = $params['to'];
+      $message['subject'] = $params['subject'];
+      $message['body'] = $params['message'];
+      break;
+  }
+}
+
+/**
+ * Implements hook_form().
+ */
+function penton_user_register_advanced_form($form, &$form_state) {
+  require_once DRUPAL_ROOT . '/includes/locale.inc';
+  $countries = country_get_list();
+
+  $form['form_title'] = array(
+    '#markup' => '<h1>' . variable_get('penton_modal_reg_form_header', 'Register now') . '</h1>',
+  );
+
+  $form['name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Username:'),
+    '#maxlength' => USERNAME_MAX_LENGTH + PENTON_USER_REGISTER_FIELD_LENGTH_INCREMENT,
+    '#required' => TRUE,
+    '#attributes' => array(
+      'class' => array('username'),
+      'placeholder' => t('Your public profile name'),
+    ),
+    '#element_validate' => array(
+      'penton_user_account_required_validate',
+      'penton_user_account_length_validate',
+    ),
+  );
+
+  $form['mail'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Email address:'),
+    '#maxlength' => EMAIL_MAX_LENGTH,
+    '#description' => t('A valid e-mail address. All e-mails from the system will be sent to this address. The e-mail address is not made public and will only be used if you wish to receive a new password or wish to receive certain news or notifications by e-mail.'),
+    '#required' => TRUE,
+    '#attributes' => array(
+      'placeholder' => t('Your email address'),
+    ),
+    '#element_validate' => array(
+      'penton_user_account_required_validate',
+    ),
+  );
+  $password_min_chars = variable_get('PEN_USER_password_min_chars', 4);
+  $password_max_chars = variable_get('PEN_USER_password_max_chars', 128);
+  $form['pass'] = array(
+    '#type' => 'password',
+    '#title' => t('Password:'),
+    '#maxlength' => $password_max_chars + PENTON_USER_REGISTER_FIELD_LENGTH_INCREMENT,
+    '#required' => TRUE,
+    '#attributes' => array(
+      'placeholder' => t('!min_chars characters or more',
+        array('!min_chars' => $password_min_chars)),
+    ),
+    '#element_validate' => array(
+      'penton_user_account_required_validate',
+      'penton_user_account_length_validate',
+    ),
+  );
+
+  $form['#user'] = drupal_anonymous_user();
+
+  $form['country'] = array(
+    '#type' => 'select',
+    '#title' => t('Country:'),
+    '#options' => $countries,
+    '#default_value' => 'US',
+    '#required' => TRUE,
+    '#attributes' => array(
+      'class' => array('country'),
+    ),
+  );
+
+  $field_instance = field_info_instance('user', 'field_penton_question1',
+    'user');
+  $field_info = field_info_field('field_penton_question1');
+  $form['field_penton_question1'] = array(
+    '#type' => 'select',
+    '#title' => $field_instance['label'],
+    '#options' => $field_info['settings']['allowed_values'],
+    '#empty_option' => t('Select'),
+  );
+
+  $field_instance = field_info_instance('user', 'field_penton_question2',
+    'user');
+  $field_info = field_info_field('field_penton_question2');
+  $form['field_penton_question2'] = array(
+    '#type' => 'select',
+    '#title' => $field_instance['label'],
+    '#options' => $field_info['settings']['allowed_values'],
+    '#empty_option' => t('Select'),
+  );
+
+  if (module_exists('penton_newsletter_manager')) {
+    $form['subscribe'] = penton_newsletter_manager_flagship_newsletter_form_element();
+  }
+
+  $module_js_path = drupal_get_path('module', 'penton_user_register') . '/js/';
+  drupal_add_js($module_js_path . 'penton_user_register_terms.js');
+  $form['terms'] = array(
+    '#prefix' => '<p id="register_terms" class="reg-terms-of-service reg-terms-of-service-default">',
+    '#markup' => t("By clicking below, I acknowledge and agree to Penton's !terms_url
+      and to Penton's use of my contact information to communicate with me
+      about Penton's or its third party partners products, services,
+      events and research opportunities. Penton's use of the information
+      I provide will be consistent with Penton's !policy_url",
+      array(
+        '!terms_url' => penton_user_register_get_terms_of_service_link(),
+        '!policy_url' => penton_user_register_get_privacy_policy_link(),
+      )
+    ),
+    '#suffix' => '</p>',
+  );
+
+  $form['terms_canadians'] = array(
+    '#type' => 'checkbox',
+    '#default_value' => TRUE,
+    '#title' => t("I acknowledge and agree to Penton's !terms_url and to Penton's use
+      of my contact information to communicate with me about offerings by
+      Penton, its brands, affiliates and/or third-party partners,
+      consistent with Penton's !policy_url",
+      array(
+        '!terms_url' => penton_user_register_get_terms_of_service_link(),
+        '!policy_url' => penton_user_register_get_privacy_policy_link(),
+      )
+    ),
+    '#attributes' => array(
+      'class' => array('reg-terms-of-service', 'reg-terms-of-service-canadian'),
+    ),
+    '#element_validate' => array('penton_user_register_check_terms_canadians'),
+    '#error_msg' => t('Please acknowledge and agree to the Terms of
+    Service and Privacy Policy before continuing.'),
+  );
+
+  $form['login_href'] = array(
+    '#type' => 'link',
+    '#title' => t('Log in'),
+    '#href' => '/penton_modal/nojs/login',
+    '#attributes' => array(
+      'class' => array(
+        'ctools-use-modal',
+        'ctools-modal-modal-popup-login',
+        'text-link',
+      ),
+      'rel' => 'nofollow',
+    ),
+    '#prefix' => t('Already a member?'),
+    '#suffix' => '.',
+  );
+
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Register'),
+    '#attributes' => array(
+      'class' => array('modal-register-btn'),
+    ),
+  );
+
+  if (!empty($form_state['upgrading'])) {
+    $form['field_penton_question1']['#required'] = TRUE;
+    $form['field_penton_question2']['#required'] = TRUE;
+    $form['login_href']['#options']['query']['advanced'] = 'advanced';
+  }
+
+  $form['#attached']['js'][] = drupal_get_path('module', 'penton_user_register') . '/js/GUID.js';
+
+  return $form;
+}
+
+/**
+ * Validate function for advanced register form.
+ */
+function penton_user_register_advanced_form_validate($form, &$form_state) {
+  $email = trim($form_state['values']['mail']);
+  if (!valid_email_address($email)) {
+    form_set_error('mail', t('Please enter a valid email address.'));
+  }
+  elseif (user_load_by_mail($email) != FALSE) {
+    form_set_error('mail',
+      t('Looks like an account has already been created with this email address. Please try logging in.'));
+  }
+
+  $name = trim($form_state['values']['name']);
+  if (user_load_by_name($name) !== FALSE) {
+    form_set_error('name',
+      t('Sorry, that username is taken. Please enter in a different username.'));
+  }
+
+  if (empty($form_state['values']['country'])) {
+    form_set_error('country', t('Please select a country.'));
+  }
+}
+
+/**
+ * Submit function for advanced register form.
+ */
+function penton_user_register_advanced_form_submit($form, &$form_state) {
+  $user = _penton_user_register_create_basic_user($form_state['values']);
+
+  if (!empty($form_state['values']['field_penton_question1'])) {
+    $field_penton_question1 = $form_state['values']['field_penton_question1'];
+    $user->field_penton_question1 = $field_penton_question1;
+  }
+  if (!empty($form_state['values']['field_penton_question2'])) {
+    $field_penton_question2 = $form_state['values']['field_penton_question2'];
+    $user->field_penton_question2 = $field_penton_question2;
+  }
+
+  if (!empty($field_penton_question1) && !empty($field_penton_question2)) {
+    $roles = array(DRUPAL_AUTHENTICATED_RID,
+      PENTON_GATED_ADVANCED_RID,
+      PENTON_USER_UNVERIFIED_RID,
+    );
+    $user->roles = drupal_map_assoc($roles);
+  }
+
+  $user->save();
+
+  $_SESSION['registration_type'] = 'advanced';
+
+  if ($uid = $user->getIdentifier()) {
+    global $user;
+    $user = user_load($uid);
+    user_save($user, array('pass' => $form_state['values']['pass']));
+    user_login_finalize();
+
+    _penton_user_register_after_register($user);
+  }
+
+  if (module_exists('penton_newsletter_manager')) {
+    $promoted = variable_get('penton_newsletter_manager_promoted', 0);
+    if ($promoted && !empty($form_state['values']['subscribe'])) {
+      penton_newsletter_manager_process_subscription(array($promoted),
+        $form_state['values']['mail']);
+    }
+  }
+}
+
+/**
+ * Implements hook_form().
+ */
+function penton_user_register_basic_form($form, $form_state) {
+  require_once DRUPAL_ROOT . '/includes/locale.inc';
+  $countries = country_get_list();
+
+  $action = !empty($form_state['action']) ? $form_state['action'] : 'standard';
+
+  $form_title = !empty($form_state['form_info']['order']['register']) ? $form_state['form_info']['order']['register'] : t('Register now');
+  $form['form_title'] = array(
+    '#markup' => '<h1>' . $form_title . '</h1>',
+  );
+
+  $form_subtitle = '';
+  if ($action == 'print') {
+    $form_subtitle = t('and sign up for a !site account.', array(
+      '!site' => variable_get('site_name', 'Content Pillar'),
+    ));
+  }
+  if (!empty($form_subtitle)) {
+    $form['form_subtitle'] = array(
+      '#markup' => '<p>' . $form_subtitle . '</p>',
+    );
+  }
+
+  $form['mail'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Email address:'),
+    '#attributes' => array(
+      'placeholder' => t('Your email address'),
+      'type' => 'email',
+    ),
+    '#element_validate' => array(
+      'penton_user_account_required_validate',
+    ),
+  );
+
+  $form['country'] = array(
+    '#type' => 'select',
+    '#title' => t('Country:'),
+    '#default_value' => 'US',
+    '#options' => $countries,
+  );
+
+  if (module_exists('penton_newsletter_manager')) {
+    $form['subscribe'] = penton_newsletter_manager_flagship_newsletter_form_element();
+  }
+
+  $form['terms'] = penton_user_register_get_privacy_policy_text_element();
+
+  if ($action != 'print') {
+    $form['login_href'] = array(
+      '#type' => 'link',
+      '#title' => t('Log in'),
+      '#href' => '/penton_modal/nojs/login',
+      '#attributes' => array(
+        'class' => array(
+          'ctools-use-modal',
+          'ctools-modal-modal-popup-login',
+          'text-link',
+        ),
+        'rel' => 'nofollow',
+      ),
+      '#options' => array(
+        'query' => array('basic' => 'basic'),
+      ),
+      '#prefix' => t('Already a member?'),
+      '#suffix' => '.',
+    );
+  }
+  else {
+    $form['print_href'] = array(
+      '#type' => 'link',
+      '#title' => t('No thanks, just print'),
+      '#href' => '/print/' . $form_state['print_nid'],
+      '#attributes' => array(
+        'class' => array(
+          'register-print-link',
+        ),
+      ),
+    );
+  }
+
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Register'),
+    '#attributes' => array(
+      'class' => array('modal-register-btn'),
+    ),
+  );
+
+  return $form;
+}
+
+/**
+ * Validate function for basic registration.
+ */
+function penton_user_register_basic_form_validate($form, &$form_state) {
+  penton_user_register_email_country_validate($form_state);
+}
+
+/**
+ * Submit function for basic registration and newsletter sign up forms.
+ */
+function penton_user_register_basic_form_submit($form, &$form_state) {
+  $user = _penton_user_register_create_basic_user($form_state['values']);
+  $user->save();
+
+  if ($uid = $user->getIdentifier()) {
+    global $user;
+    $user = user_load($uid);
+    $user->name = 'user-' . $uid;
+    user_save($user);
+    user_login_finalize();
+
+    _penton_user_register_after_register($user);
+  }
+
+  if (module_exists('penton_newsletter_manager')) {
+    $promoted = variable_get('penton_newsletter_manager_promoted', 0);
+    if ($promoted && !empty($form_state['values']['subscribe'])) {
+      penton_newsletter_manager_process_subscription(array($promoted),
+        $form_state['values']['mail']);
+    }
+  }
+}
+
+/**
+ * Form constructor for the email this article form.
+ */
+function penton_user_register_email_this_form($form, &$form_state) {
+  require_once DRUPAL_ROOT . '/includes/locale.inc';
+
+  $form['form_title'] = array(
+    '#type' => 'item',
+    '#markup' => '<h1>' . t('Email this article') . '</h1>',
+  );
+
+  if (!empty($form_state['forward_nid'])) {
+    $node = node_load($form_state['forward_nid']);
+
+    $form['form_subtitle'] = array(
+      '#prefix' => '<p class="node-title">',
+      '#markup' => $node->title,
+      '#suffix' => '</p>',
+    );
+    $form['nid'] = array(
+      '#type' => 'hidden',
+      '#value' => $form_state['forward_nid'],
+    );
+  }
+
+  $form['to'] = array(
+    '#type' => 'textfield',
+    '#title' => t('To:'),
+    '#required' => TRUE,
+    '#element_validate' => array(
+      'penton_user_account_required_validate',
+      'penton_user_account_length_validate',
+    ),
+    '#attributes' => array(
+      'placeholder' => t('Recipient email address'),
+    ),
+  );
+  $form['message'] = array(
+    '#title'     => t('Message:'),
+    '#type'      => 'textarea',
+    '#resizable' => FALSE,
+    '#element_validate' => array('penton_user_account_length_validate'),
+    '#attributes' => array(
+      'class' => array('email-message'),
+    ),
+  );
+
+  if (user_is_anonymous()) {
+    $form['buttons']['next']['#value'] = t('Register and send');
+
+    $form['mail'] = array(
+      '#type' => 'textfield',
+      '#title' => t('From:'),
+      '#required' => TRUE,
+      '#element_validate' => array(
+        'penton_user_account_required_validate',
+        'penton_user_account_length_validate',
+      ),
+      '#attributes' => array(
+        'placeholder' => t('Your email address'),
+      ),
+    );
+    $form['country'] = array(
+      '#type' => 'select',
+      '#title' => t('Country:'),
+      '#options' => country_get_list(),
+      '#empty_option' => t('Select your country'),
+      '#required' => TRUE,
+    );
+
+    if (module_exists('penton_newsletter_manager')) {
+      $form['subscribe'] = penton_newsletter_manager_flagship_newsletter_form_element();
+    }
+
+    $form['captcha'] = array(
+      '#type' => 'captcha',
+    );
+    $form['terms'] = penton_user_register_get_privacy_policy_text_element();
+
+    $form['login_href'] = array(
+      '#prefix' => '<p>',
+      '#markup' => t('As a convenience, a website account will be created for you. Already a member? !link.', array(
+        '!link' => l(t('Log in'), 'penton_modal/nojs/login', array(
+          'attributes' => array(
+            'class' => array(
+              'ctools-use-modal',
+              'ctools-modal-modal-popup-login',
+            ),
+            'rel' => 'nofollow',
+          ),
+        )),
+      )),
+      '#suffix' => '</p>',
+    );
+
+    $form['actions']['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Register and send'),
+      '#attributes' => array(
+        'class' => array('modal-register-btn'),
+      ),
+    );
+  }
+  else {
+    global $user;
+
+    $form['buttons']['next']['#value'] = t('Send');
+
+    $wrapper = entity_metadata_wrapper('user', user_load($user->uid));
+
+    $form['from'] = array(
+      '#title' => t('From:'),
+      '#type' => 'item',
+      '#prefix' => '<div class="from-mail">',
+      '#markup' => $wrapper->mail->value(),
+      '#suffix' => '</div>',
+    );
+    $form['not_you'] = array(
+      '#type'        => 'item',
+      '#prefix'      => '<div class="not-you">',
+      '#markup'      => t('Not you? !log_out or !switch.', array(
+        '!log_out' => ctools_ajax_text_button(t('Log out'),
+          "penton_modal/nojs/logout/{$form_state['forward_nid']}",
+          t('Log out')
+        ),
+        '!switch'  => ctools_ajax_text_button(t('switch account'),
+          "penton_modal/nojs/switch/{$form_state['forward_nid']}",
+          t('switch account'),
+          'ctools-use-modal ctools-modal-modal-popup-login'
+        ),
+      )),
+      '#suffix' => '</div>',
+    );
+
+    $form['actions']['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Send'),
+      '#attributes' => array(
+        'class' => array('modal-register-btn'),
+      ),
+    );
+  }
+
+  $form['#validate'] = array('penton_user_register_basic_form_validate');
+
+  $form['#after_build'][] = 'penton_user_register_basic_form_after_build';
+
+  return $form;
+}
+
+/**
+ * After build handler for Email this Article Form.
+ *
+ * Unset CAPTCHA if user in logged in.
+ */
+function penton_user_register_basic_form_after_build($form, &$form_state) {
+  if (user_is_logged_in()) {
+    unset($form['captcha']);
+  }
+  return $form;
+}
+
+/**
+ * Form submission handler for penton_user_register_email_this_form().
+ */
+function penton_user_register_email_this_form_submit(&$form, &$form_state) {
+  if (user_is_anonymous()) {
+    $w_account = _penton_user_register_create_basic_user($form_state['values']);
+    $w_account->save();
+
+    if ($uid = $w_account->getIdentifier()) {
+      global $user;
+      $user = user_load($uid);
+      $user->name = 'user-' . $uid;
+      user_save($user);
+      user_login_finalize();
+
+      _penton_user_register_after_register($user);
+
+      if (module_exists('penton_eloqua_api')) {
+        penton_eloqua_api_send_user_to_eloqua($uid);
+      }
+
+      $form_state['object']->uid = $uid;
+    }
+
+    if (module_exists('penton_newsletter_manager')) {
+      $promoted = variable_get('penton_newsletter_manager_promoted', 0);
+      if ($promoted && !empty($form_state['values']['subscribe'])) {
+        penton_newsletter_manager_process_subscription(array($promoted),
+          $form_state['values']['mail']);
+      }
+    }
+  }
+  else {
+    global $user;
+
+    $user = user_load($user->uid);
+  }
+
+  $lang = !empty($user->language) ? $user->language : LANGUAGE_NONE;
+  $message = !empty($form_state['values']['message']) ? $form_state['values']['message'] : '';
+  $email_list = penton_user_register_string_extract_mails($form_state['values']['to']);
+
+  foreach ($email_list as $email) {
+    drupal_mail(
+      'penton_user_register',
+      'email_this_article_form_key',
+      $user->mail,
+      $lang,
+      array(
+        'to' => $email,
+        'subject' => t('Shared with you: !user_mail', array(
+          '!user_mail' => $user->mail,
+        )),
+        'message' => theme('penton_user_register_email_this_article_mail', array(
+          'node'    => node_load($form_state['input']['nid']),
+          'account' => $user,
+          'message' => $message,
+        )),
+      )
+    );
+  }
+}
+
+/**
+ * Extracts e-mails array from the comma separated e-mails string.
+ */
+function penton_user_register_string_extract_mails($string) {
+  if (FALSE === strpos($string, ',')) {
+    $email_list = array($string);
+  }
+  else {
+    $email_list = explode(',', $string);
+    $email_list = array_map('trim', $email_list);
+    $email_list = array_filter($email_list);
+  }
+
+  return $email_list;
+}
+
+/**
+ * Form constructor for the thank you form.
+ */
+function penton_user_register_email_thank_you_form($form, &$form_state) {
+  $form['form_title'] = array(
+    '#type' => 'item',
+    '#markup' => '<h1>' . t('Your message has been sent') . '</h1>',
+  );
+
+  if (!empty($form['buttons']['return'])) {
+    unset($form['buttons']['return']);
+  }
+
+  if (!empty($form_state['object']->uid)) {
+    $form['#attributes']['class'][] = 'penton_modal_reload_after_close';
+
+    $account_link = drupal_get_path_alias("user/{$form_state['object']->uid}");
+    $form['edit_account'] = array(
+      '#type' => 'link',
+      '#title' => t('Access your profile'),
+      '#href' => $account_link,
+      '#attributes' => array(
+        'target' => '_blank',
+      ),
+      '#suffix' => '.',
+    );
+  }
+
+  // Unset status messages.
+  drupal_get_messages(NULL, TRUE);
+
+  return $form;
+}
+
+/**
+ * Implements hook_form().
+ */
+function penton_user_register_newsletter_signup_form($form, &$form_state) {
+  module_load_include('inc', 'penton_user_register', 'penton_user_register');
+  require_once DRUPAL_ROOT . '/includes/locale.inc';
+
+  $form['mail'] = array(
+    '#type' => 'textfield',
+    '#weight' => 1,
+    '#attributes' => array(
+      'placeholder' => t('Email address'),
+      'type' => 'email',
+      'required' => TRUE,
+      'class' => array(
+        'newsletter-signup-input',
+        'js-action-trigger',
+      ),
+      'data-action' => 'nlemailhover',
+    ),
+  );
+
+  $form['country'] = array(
+    '#type' => 'select',
+    '#weight' => 2,
+    '#options' => country_get_list(),
+    '#default_value' => 'US',
+    '#attributes' => array(
+      'class' => array(
+        'newsletter-signup-select',
+        'js-action-trigger',
+        'country',
+      ),
+      'required' => TRUE,
+      'data-action' => 'nlemailhover',
+    ),
+  );
+
+  $form['subscribe'] = array(
+    '#type' => 'submit',
+    '#weight' => 3,
+    '#attributes' => array(
+      'class' => array(
+        'newsletter-signup-button',
+        'sattelite-event-caller',
+        'sattelite-event-caller__newsletter-clicked',
+      ),
+      'rel' => 'nofollow',
+    ),
+    '#value' => t('Subscribe'),
+    '#ajax' => array(
+      'callback' => 'penton_user_register_newsletter_signup_callback',
+      'wrapper' => 'formwrapper',
+      'method' => 'replace',
+      'effect' => 'fade',
+    ),
+  );
+
+  $form['nl_href'] = array(
+    '#type' => 'link',
+    '#title' => 'List',
+    '#href' => '/penton_modal/nojs/',
+    '#attributes' => array(
+      'class' => array(
+        'nl_href_link',
+        'ctools-use-modal',
+      ),
+      'rel' => 'nofollow',
+    ),
+  );
+  if (variable_get('penton_user_register_newsletter_signup_enable_advanced', 1)) {
+    $form['nl_href']['#href'] .= 'advanced/newsletters';
+    $form['nl_href']['#attributes']['class'][] = 'ctools-modal-modal-popup-advanced';
+  }
+  else {
+    $form['nl_href']['#href'] .= 'nl_list';
+    $form['nl_href']['#attributes']['class'][] = 'ctools-modal-modal-popup-medium';
+  }
+
+  $form['terms'] = array(
+    '#type' => 'checkbox',
+    '#default_value' => TRUE,
+    '#title' => ' ',
+    '#element_validate' => array('penton_user_register_check_terms_canadians'),
+    '#error_msg' => t('Please acknowledge and agree to the Terms of
+    Service and Privacy Policy before continuing.'),
+    '#prefix' => '<div class="reg-terms-of-service-wrapper js-hidden-till-action invisible" data-action="nlemailhover">',
+    '#suffix' => '<p class="reg-terms-of-service js-hidden-till-action invisible" data-action="nlemailhover">' . penton_user_register_get_privacy_policy_text() . '</p></div>',
+  );
+
+  $form['#prefix'] = '<div id="formwrapper">';
+  $form['#suffix'] = '</div>';
+
+  $form['#attached']['js'][] = drupal_get_path('module', 'penton_user_register') . '/js/GUID.js';
+
+  return $form;
+}
+
+/**
+ * Ajax callback for newsletter_signup form.
+ */
+function penton_user_register_newsletter_signup_callback($form, &$form_state) {
+  drupal_validate_form('penton_user_register_newsletter_signup_form', $form,
+    $form_state);
+  if (form_get_errors()) {
+    $form['terms']['#prefix'] = str_replace(' js-hidden-till-action invisible', '', $form['terms']['#prefix']);
+    $form['terms']['#suffix'] = str_replace(' js-hidden-till-action invisible', '', $form['terms']['#suffix']);
+    $form_state['rebuild'] = TRUE;
+    return $form;
+  }
+  penton_user_register_newsletter_signup_submit($form, $form_state);
+
+  $commands = array();
+  global $user;
+  if (!empty($user->uid)) {
+    $commands[] = ajax_command_invoke(NULL, 'success_newsletter_signup');
+    $commands[] = ajax_command_invoke(NULL, 'dtm_reg_nl_signup_box', array(
+      array(
+        'uid' => $user->uid,
+        'reg_type' => _penton_adobe_dtm_get_user_permission_level($user),
+        'event' => 'register',
+        'login_status' => 'logged_in',
+        'permission' => _penton_adobe_dtm_get_user_permission_level($user) . '|' . (user_has_role(PENTON_USER_UNVERIFIED_RID, $user) ? 'unverified' : 'verified'),
+      ),
+    ));
+  }
+  elseif (penton_newsletter_manager_have_not_promoted_newsletters()) {
+    $commands[] = ajax_command_invoke(NULL, 'nl_signup_open_nl_list_modal');
+  }
+  else {
+    $block = block_load('penton_blocks', 'penton_newsletter_signup');
+    $block = _block_get_renderable_array(_block_render_blocks(array($block)));
+    $out = drupal_render($block);
+
+    $commands[] = ajax_command_replace('.newsletter-signup', $out);
+    $commands[] = ajax_command_css('.newsletter-signup', array('display' => 'block'));
+  }
+
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
+
+/**
+ * Validation function for newsletter_signup form.
+ */
+function penton_user_register_newsletter_signup_form_validate(
+  $form,
+  &$form_state
+) {
+  penton_user_register_email_country_validate($form_state);
+}
+
+/**
+ * Helper function for validation of email and country fields.
+ */
+function penton_user_register_email_country_validate($form_state) {
+  if (isset($form_state['values']['mail'])) {
+    $email = trim($form_state['values']['mail']);
+    if (!$email) {
+      form_set_error('mail', t('Please enter your email address.'));
+    }
+    elseif (!valid_email_address($email)) {
+      form_set_error('mail', t('Please enter a valid email address.'));
+    }
+    else {
+      switch ($form_state['build_info']['form_id']) {
+        case 'penton_user_register_newsletter_signup_form':
+          // Do nothing.
+          break;
+
+        default:
+          if (user_load_by_mail($email) != FALSE) {
+            form_set_error('mail', t('Looks like an account has already been created with this email address. Please try logging in.'));
+          }
+          break;
+      }
+    }
+  }
+  if (isset($form_state['values']['to'])) {
+    $to = trim($form_state['values']['to']);
+    if (!empty($to)) {
+      $email_list = penton_user_register_string_extract_mails($to);
+      $email_list = array_map('valid_email_address', $email_list);
+      if (count($email_list) != array_sum($email_list)) {
+        form_set_error('to', t('One of your recipient addresses is invalid.'));
+      }
+    }
+  }
+
+  if (isset($form_state['values']['country']) && empty($form_state['values']['country'])) {
+    form_set_error('country', t('Please select a country.'));
+  }
+}
+
+/**
+ * Implements hook_form_submit().
+ */
+function penton_user_register_newsletter_signup_submit($form, &$form_state) {
+  $cookie = 'sub';
+
+  if (user_load_by_mail($form_state['values']['mail']) === FALSE) {
+    $user = _penton_user_register_create_basic_user($form_state['values']);
+    $user->save();
+
+    if ($uid = $user->getIdentifier()) {
+      global $user;
+      $user = user_load($uid);
+      $user->name = 'user-' . $uid;
+      user_save($user);
+      user_login_finalize();
+
+      _penton_user_register_after_register($user);
+
+      if (module_exists('penton_eloqua_api')) {
+        penton_eloqua_api_send_user_to_eloqua($uid);
+      }
+
+      $cookie = 'newsub';
+    }
+  }
+  user_cookie_save(array(
+    'nlsub' => $cookie,
+    'subemail' => $form_state['values']['mail'],
+  ));
+  $_COOKIE['Drupal_visitor_nlsub'] = $cookie;
+  $_COOKIE['Drupal_visitor_subemail'] = $form_state['values']['mail'];
+
+  if (module_exists('penton_newsletter_manager')) {
+    $promoted = variable_get('penton_newsletter_manager_promoted', 0);
+    if ($promoted) {
+      penton_newsletter_manager_process_subscription(array($promoted),
+        $form_state['values']['mail']);
+    }
+  }
+}
+
+/**
+ * Implements hook_form().
+ */
+function penton_user_register_advanced_questions_form($form, &$form_state) {
+  global $user;
+  $user_wrapper = entity_metadata_wrapper('user', $user);
+
+  if ($form_state['advanced_type'] == 'article') {
+    $form['form_title'] = array(
+      '#markup' => '<h1>' . t('One quick thing!') . '</h1>',
+    );
+    $form['form_subtitle'] = array(
+      '#markup' => '<p>' . t('Please answer a couple of questions to access the full article.') . '</p>',
+    );
+  }
+  else {
+    $form['form_title'] = array(
+      '#markup' => '<h1>' . t('Almost Done!') . '</h1>',
+    );
+    $form['form_subtitle'] = array(
+      '#markup' => '<p>' . t('Please answer these quick questions to complete your Newsletter Subscription.') . '</p>',
+    );
+  }
+
+  $field_instance = field_info_instance('user', 'field_penton_question1',
+    'user');
+  $field_info = field_info_field('field_penton_question1');
+  if (!empty($field_info['settings']['allowed_values'])) {
+    $form['field_penton_question1'] = array(
+      '#type' => 'select',
+      '#title' => $field_instance['label'],
+      '#options' => $field_info['settings']['allowed_values'],
+      '#default_value' => $user_wrapper->field_penton_question1->value(),
+      '#empty_option' => t('Select'),
+    );
+    if (!empty($form_state['advanced_type']) && $form_state['advanced_type'] == 'article') {
+      $form['field_penton_question1']['#required'] = TRUE;
+    }
+  }
+
+  $field_instance = field_info_instance('user', 'field_penton_question2',
+    'user');
+  $field_info = field_info_field('field_penton_question2');
+  if (!empty($field_info['settings']['allowed_values'])) {
+    $form['field_penton_question2'] = array(
+      '#type' => 'select',
+      '#title' => $field_instance['label'],
+      '#options' => $field_info['settings']['allowed_values'],
+      '#default_value' => $user_wrapper->field_penton_question2->value(),
+      '#empty_option' => t('Select'),
+    );
+    if (!empty($form_state['advanced_type']) && $form_state['advanced_type'] == 'article') {
+      $form['field_penton_question2']['#required'] = TRUE;
+    }
+  }
+
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#attributes' => array(
+      'class' => array('modal-register-btn'),
+    ),
+  );
+  if ($form_state['advanced_type'] == 'article') {
+    $form['actions']['submit']['#value'] = t('View full article');
+  }
+  else {
+    $form['actions']['submit']['#value'] = penton_newsletter_manager_have_not_promoted_newsletters() ? t('Next') : t('Finish');
+    $form['#attributes']['class'][] = 'penton_modal_reload_after_close';
+  }
+
+  return $form;
+}
+
+/**
+ * Implements hook_form_submit().
+ */
+function penton_user_register_advanced_questions_form_submit(
+  $form,
+  &$form_state
+) {
+  global $user;
+  $user_wrapper = entity_metadata_wrapper('user', $user);
+
+  $user_wrapper->field_penton_question1 = $form_state['values']['field_penton_question1'];
+  $user_wrapper->field_penton_question2 = $form_state['values']['field_penton_question2'];
+
+  $user_wrapper->save();
+}
+
+/**
+ * Function which provides link to Penton Terms of Service.
+ */
+function penton_user_register_get_terms_of_service_link() {
+  return l(
+    t('Terms of Service'),
+    'http://www.penton.com/terms-of-service/',
+    array(
+      'attributes' => array(
+        'target' => '_blank',
+      ),
+    )
+  );
+}
+
+/**
+ * Function which provides link to Penton Privacy Policy.
+ */
+function penton_user_register_get_privacy_policy_link() {
+  return l(
+    t('Privacy Policy'),
+    'http://www.penton.com/privacy-policy/',
+    array(
+      'attributes' => array(
+        'target' => '_blank',
+      ),
+    )
+  );
+}
+
+/**
+ * Returns Penton's privacy policy text.
+ */
+function penton_user_register_get_privacy_policy_text() {
+  return t('Enter your email above to receive messages about offerings by Penton, its brands, affiliates and/or third-party partners, consistent with Penton’s !link.',
+    array(
+      '!link' => penton_user_register_get_privacy_policy_link(),
+    ));
+}
+
+/**
+ * Returns Penton's privacy policy form element.
+ */
+function penton_user_register_get_privacy_policy_text_element() {
+  return array(
+    '#prefix' => '<p id="register_terms" class="reg-terms-of-service">',
+    '#markup' => penton_user_register_get_privacy_policy_text(),
+    '#suffix' => '</p>',
+  );
+}
+
+/**
+ * Validation function to terms_canadians field in register form.
+ */
+function penton_user_register_check_terms_canadians($element, &$form_state) {
+  if ($form_state['values']['country'] == 'CA' && empty($element['#value'])) {
+    form_error($element, $element['#error_msg']);
+  }
+}
+
+/**
+ * Form for thank you page in register process.
+ */
+function penton_user_register_thank_you_form($form, &$form_state) {
+  $form['#attributes']['class'][] = 'penton_modal_reload_after_close';
+
+  global $user;
+
+  $form['form_title'] = array(
+    '#markup' => '<h1>' . variable_get('penton_modal_ty_form_header', 'Thank you for registering!') . '</h1>',
+  );
+
+  $form['user_mail'] = array(
+    '#markup' => $user->mail,
+  );
+
+  if (empty($form_state['hide_edit_profile_link'])) {
+    $account_link = !empty($user->uid) ? drupal_get_path_alias("user/{$user->uid}") : 'user';
+    $form['edit_account'] = array(
+      '#type' => 'link',
+      '#title' => t('edit your profile'),
+      '#href' => $account_link,
+      '#attributes' => array(
+        'target' => '_blank',
+      ),
+      '#suffix' => '.',
+    );
+  }
+
+  // Theming next button and its container on the 4th (thank you) step.
+  $form['#attributes']['class'][] = 'registration-form__inner-content-step-4';
+  $form['buttons']['#attributes']['class'][] = 'register-form-btn';
+  $form['buttons']['return']['#attributes']['class'][] = 'btn-medium';
+
+  // Unset status messages.
+  drupal_get_messages(NULL, TRUE);
+
+  return $form;
+}
+
+/**
+ * Callback for Thank You screen.
+ */
+function penton_user_register_penton_ur_thank_you() {
+  $form = drupal_get_form('penton_user_register_thank_you_form');
+  return drupal_render($form);
+}
+
+/**
+ * Creates new user with basic fields: name, mail, country.
+ *
+ * @param array $values
+ *   Submitted form values.
+ *
+ * @return EntityMetadataWrapper
+ *   New user.
+ */
+function _penton_user_register_create_basic_user($values) {
+  $user = entity_create('user', array());
+
+  $values['name'] = empty($values['name']) ? $values['mail'] : $values['name'];
+
+  $user->name = $values['name'];
+  $user->mail = $values['mail'];
+  $user->init = $values['mail'];
+
+  $user->status = 1;
+  $user->roles = drupal_map_assoc(array(
+    DRUPAL_AUTHENTICATED_RID,
+    PENTON_USER_UNVERIFIED_RID,
+  ));
+
+  $user = entity_metadata_wrapper('user', $user);
+  $user->field_penton_profile = array('country' => $values['country']);
+
+  $_SESSION['registration_type'] = 'basic';
+
+  return $user;
+}
+
+/**
+ * Perform after registering actions.
+ */
+function _penton_user_register_after_register($account) {
+  watchdog(
+    'user',
+    'New user: %name (%email).',
+    array(
+      '%name' => $account->name,
+      '%email' => $account->mail,
+    ),
+    WATCHDOG_NOTICE,
+    l(t('edit'), 'user/' . $account->uid . '/edit')
+  );
+
+  // Send validation email.
+  _user_mail_notify('register_no_approval_required', $account);
+}
+
+/**
+ * Returns HTML for an email this node mail.
+ *
+ * @param array $variables
+ *   An associative array containing:
+ *   - node: node object.
+ *   - account: user object.
+ *   - message: user custom message from "email this" form.
+ *
+ * @ingroup themeable
+ */
+function theme_penton_user_register_email_this_article_mail($variables) {
+  extract($variables);
+
+  $rows = array();
+  if (isset($account, $node)) {
+    $w_node    = entity_metadata_wrapper('node', $node);
+    $node_url  = url('node/' . $w_node->getIdentifier(), array('absolute' => TRUE));
+    $site_link = l(variable_get('site_name', 'Content Pillar'), $node_url);
+    $header    = array("<h1>$site_link</h1>");
+    $f_image   = '';
+    if (isset($w_node->field_penton_link_media_feat_img->field_penton_media_image)) {
+      $f_image = theme('image', array(
+        'path' => $w_node->field_penton_link_media_feat_img->field_penton_media_image->value()['uri'],
+      ));
+    }
+    $summary = '';
+    if (isset($w_node->field_penton_content_summary) && !empty($w_node->field_penton_content_summary->value()['value'])) {
+      $summary = $w_node->field_penton_content_summary->value()['value'];
+    }
+
+    $rows[] = '<p>' . t('Shared with you by !mailto.', array(
+        '!mailto'    => l($account->name, 'mailto:' . $account->mail),
+      )) . '</p>';
+    if (!empty($message)) {
+      $rows[] = '<p>' . $message . '</p>';
+    }
+    $rows[] = '<h2>' . l($node->title, $node_url) . '</h2>';
+    if (!empty($f_image)) {
+      $rows[] = $f_image;
+    }
+    if (!empty($summary)) {
+      $rows[] = '<div><p>' . $summary . '</p></div>';
+    }
+    $rows[] = '<p>' . t('Copy and paste this URL into your browser: !node_url', array(
+        '!node_url' => $node_url,
+      )) . '</p>';
+  }
+
+  return $rows;
+}
+
+/**
+ * Implements hook_mollom_form_list().
+ */
+function penton_user_register_mollom_form_list() {
+  $forms['penton_user_register_email_this_form'] = array(
+    'title' => t('Email this form'),
+  );
+
+  return $forms;
+}
+
+/**
+ * Implements hook_mollom_form_info().
+ */
+function penton_user_register_mollom_form_info($form_id) {
+  switch ($form_id) {
+    case 'penton_user_register_email_this_form':
+      $form_info = array(
+        'mode' => MOLLOM_MODE_ANALYSIS,
+        'elements' => array(
+          'message' => t('Personal Message'),
+          'mail' => t('E-mail from address'),
+        ),
+      );
+
+      return $form_info;
+  }
+
+}

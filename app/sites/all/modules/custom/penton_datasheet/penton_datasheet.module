@@ -1,0 +1,46 @@
+<?php
+/**
+ * @file
+ * Includes files needed for the module to run.
+ */
+
+include_once 'penton_datasheet.node.inc';
+include_once 'penton_datasheet.datasheet.inc';
+include_once 'penton_datasheet.calc.inc';
+include_once 'penton_datasheet.data.inc';
+
+/**
+ * A list of tokens available to use in csv.
+ *
+ * @return array
+ *   A list of tokens.
+ */
+function penton_datasheet_get_tokens() {
+  return array(
+    '[Title]',
+    '[Subtitle]',
+    '[Rank]',
+    '[Logo]',
+    '[Website]',
+    '[Item1]',
+    '[Item2]',
+    '[Item3]',
+    '[Item4]',
+    '[Item5]',
+    '[Item6]',
+    '[Item7]',
+    '[Item8]',
+    '[Item9]',
+    '[Item10]',
+    '[Featured1]',
+    '[Featured2]',
+    '[Featured3]',
+    '[Featured4]',
+    '[Featured5]',
+    '[Featured6]',
+    '[Featured7]',
+    '[Featured8]',
+    '[Featured9]',
+    '[Featured10]',
+  );
+}

@@ -1,0 +1,14 @@
+name = Penton Development
+package = Penton
+description = Development module. This will enable required modules for development
+core = 7.x
+version = "7.x-0.1"
+dependencies[] = devel
+dependencies[] = simplehtmldom (7.x-1.12)
+dependencies[] = devel_themer
+dependencies[] = simpletest
+dependencies[] = fences
+dependencies[] = migrate
+dependencies[] = migrate_extras
+dependencies[] = migrate_d2d
+dependencies[] = coder (7.x-2.5)

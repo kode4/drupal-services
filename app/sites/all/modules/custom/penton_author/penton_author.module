@@ -1,0 +1,67 @@
+<?php
+/**
+ * @file
+ * Manages Penton authors.
+ */
+
+/**
+ * Define role id for author role.
+ */
+define('PENTON_AUTHOR_RID', 6);
+
+/**
+ * Implements hook_form_alter().
+ */
+function penton_author_form_alter(&$form, &$form_state, $form_id) {
+  // Set specific fields for authors.
+  if ($form_id == 'user_register_form' || $form_id == 'user_profile_form') {
+    $account = $form['#user'];
+    if (!user_has_role(PENTON_AUTHOR_RID, $account)) {
+      $author_fields = array(
+        'field_penton_privacy_settings',
+        'field_penton_author_program',
+        'field_penton_marketing_tagline',
+        'field_penton_site_link',
+        'field_penton_twitter_account',
+      );
+      foreach ($author_fields as $field_name) {
+        $form[$field_name]['#access'] = FALSE;
+      }
+    }
+    else {
+      // Some fields are required for authors.
+      $form['field_penton_privacy_settings']['#required'] = TRUE;
+    }
+  }
+}
+
+/**
+ * Implements hook_module_implements_alter().
+ */
+function penton_author_module_implements_alter(&$implementations, $hook) {
+  if ($hook = 'form_user_profile_form_alter') {
+    if (isset($implementations['penton_author'])) {
+      // Make sure our hook is executed last.
+      $group = $implementations['penton_author'];
+      unset($implementations['penton_author']);
+      $implementations['penton_author'] = $group;
+    }
+  }
+}
+
+/**
+ * Implements hook_query_TAG_alter().
+ *
+ * On the articles entityreference field to authors, make sure we can select
+ * only users with the author role.
+ */
+function penton_author_query_entityreference_alter(QueryAlterableInterface $query) {
+  $field = $query->getMetaData('field');
+  if ($field['field_name'] != 'field_penton_author') {
+    // This is not the field we want to alter.
+    return;
+  }
+  // Join roles to the query.
+  $query->join('users_roles', 'users_roles', 'users_roles.uid = users.uid');
+  $query->condition('users_roles.rid', PENTON_AUTHOR_RID);
+}

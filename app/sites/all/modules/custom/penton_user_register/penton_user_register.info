@@ -1,0 +1,7 @@
+name = Penton User Register
+package = Penton
+description = User registration process.
+core = 7.x
+version = "7.x-0.1"
+
+scripts[] = js/penton_user_register.js

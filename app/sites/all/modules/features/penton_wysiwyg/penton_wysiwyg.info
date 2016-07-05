@@ -1,0 +1,13 @@
+name = Penton WYSIWYG
+description = WYSIWYG settings
+core = 7.x
+package = Penton Features
+version = 7.x-0.1
+dependencies[] = ckeditor
+dependencies[] = features
+dependencies[] = filter
+features[ckeditor_profile][] = Comments
+features[features_api][] = api:2
+features[filter][] = comments
+features[user_permission][] = use text format comments
+project path = sites/all/modules/features

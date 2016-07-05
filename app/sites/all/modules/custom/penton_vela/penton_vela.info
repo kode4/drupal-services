@@ -1,0 +1,9 @@
+name = Penton Vela API
+description = Enables support for the Vela API.
+dependencies[] = uc_payment
+dependencies[] = uc_credit
+dependencies[] = uc_quote
+dependencies[] = uc_stock
+dependencies[] = uc_out_of_stock
+package = Penton
+core = 7.x

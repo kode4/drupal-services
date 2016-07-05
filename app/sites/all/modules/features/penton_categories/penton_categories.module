@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Categories feature.
+ */
+
+include_once 'penton_categories.features.inc';

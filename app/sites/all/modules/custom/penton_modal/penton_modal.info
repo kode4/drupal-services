@@ -1,0 +1,7 @@
+name = Penton Modal
+package = Penton
+description = Manages modal forms for Penton.
+core = 7.x
+version = "7.x-0.1"
+scripts[] = js/penton_modal_user_registration.js
+dependencies[] = penton_user_permissions
