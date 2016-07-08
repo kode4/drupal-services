@@ -1,0 +1,7 @@
+name = Custom Services
+package = Custom
+description = Modify the default GET output to retrieve full data for multiple nodes per page
+core = 7.x
+version = "7.x-0.1"
+dependencies[] = services
+
