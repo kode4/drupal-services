@@ -1,0 +1,329 @@
+<?php
+/**
+ * @file
+ * This is a core module for penton.
+ *
+ * This module provides any functions that allow the basic core setup of a
+ * penton website. Use this for initial setup and global functionality.
+ */
+
+define('PENTON_FULL_GALLERY_ARTICLE_TYPE', 'gallery');
+
+/**
+ * Implements hook_menu().
+ *
+ * Defines full page gallery page.
+ */
+function penton_full_gallery_menu() {
+  $items = array();
+  $items['node/%node/gallery'] = array(
+    'page callback' => 'penton_gallery_fullpage',
+    'page arguments' => array(1),
+    'access callback' => 'get_access',
+    'access arguments' => array('node', 1),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Function for filling node (gallery).
+ *
+ * @param object $node
+ *   The node for filling.
+ * @param object $queue
+ *   To store queue.
+ *
+ * @return object
+ *   Filling node.
+ */
+function penton_make_full_gallery($node, $queue = FALSE) {
+  $gallery_taxonomy_id = taxonomy_get_term_by_name('Gallery');
+  $tid = array();
+  foreach ($gallery_taxonomy_id as $val) {
+    $tid[] = $val->tid;
+  }
+  $query = new EntityFieldQuery();
+  if ($queue) {
+    // For queue of galleries.
+    $next_gallery = $query->entityCondition('entity_type', 'node')
+        ->entityCondition('bundle', 'article')
+        ->fieldCondition('field_penton_article_type', 'tid', $tid, 'IN')
+        ->fieldCondition('field_penton_published_datetime', 'value', $node->field_penton_published_datetime[LANGUAGE_NONE][0]['value'], '<')
+        ->propertyCondition('status', NODE_PUBLISHED)
+        ->fieldOrderBy('field_penton_published_datetime', 'value', 'DESC')
+        ->range(0, 1)
+        ->execute();
+  }
+  else {
+    // For first gallery.
+    $next_gallery = $query->entityCondition('entity_type', 'node')
+        ->entityCondition('bundle', 'article')
+        ->fieldCondition('field_penton_article_type', 'tid', $tid, 'IN')
+        ->fieldCondition('field_penton_published_datetime', 'value', $node->field_penton_published_datetime[LANGUAGE_NONE][0]['value'], '<>')
+        ->propertyCondition('status', NODE_PUBLISHED)
+        ->fieldOrderBy('field_penton_published_datetime', 'value', 'DESC')
+        ->range(0, 1)
+        ->execute();
+  }
+
+  // Find related articles.
+  $query = new EntityFieldQuery();
+  $related_news = $query->entityCondition('entity_type', 'node')
+      ->entityCondition('bundle', 'article')
+      ->fieldCondition('field_penton_article_type', 'tid', $tid, 'NOT IN')
+      ->propertyCondition('status', NODE_PUBLISHED)
+      ->fieldOrderBy('field_penton_published_datetime', 'value', 'DESC')
+      ->range(0, 3)
+      ->execute();
+
+  $related_articles = array();
+  if (!empty($related_news)) {
+    foreach ($related_news['node'] as $news) {
+      $news = node_load($news->nid);
+      $temp_feat_img = '';
+      if (!empty($news->field_penton_link_media_feat_img)) {
+        $feat_media_node = node_load($news->field_penton_link_media_feat_img[LANGUAGE_NONE][0]['target_id']);
+        $temp_feat_img = $feat_media_node ?
+            image_style_url('gal_landscape_main_1_standard', $feat_media_node->field_penton_media_image[LANGUAGE_NONE][0]['uri']) : "";
+      }
+      $taxonomy_name = '';
+      if (!empty($news->field_penton_article_type)) {
+        $taxonomy_name = (taxonomy_term_load($news->field_penton_article_type[LANGUAGE_NONE][0]['tid']));
+      }
+
+      $related_articles[] = array(
+        'id' => $news->nid,
+        'title' => $news->title,
+        'pdate' => !empty($news->field_penton_published_datetime) ? date('M d, Y', strtotime($news->field_penton_published_datetime[LANGUAGE_NONE][0]['value'])) : '',
+        'sub_type' => !empty($taxonomy_name->name) ? drupal_strtolower($taxonomy_name->name) : '',
+        'feature_img' => $temp_feat_img,
+        'sponsored' => !empty($news->field_penton_native_advertising) ? $news->field_penton_native_advertising[LANGUAGE_NONE][0]['value'] : 0,
+      );
+    }
+  }
+
+  $node->related_news = $related_articles;
+
+  // Next gallery.
+  if (!empty($next_gallery['node'])) {
+    $next_gallery = node_load(end($next_gallery['node'])->nid);
+    $img_uri = '';
+    if (!empty($next_gallery->field_penton_link_media_feat_img)) {
+      $feat_media_node = node_load($next_gallery->field_penton_link_media_feat_img[LANGUAGE_NONE][0]['target_id']);
+      $img_uri = !empty($feat_media_node->field_penton_media_image) ?
+        image_style_url('gal_landscape_main_1_standard', $feat_media_node->field_penton_media_image[LANGUAGE_NONE][0]['uri']) : '';
+    }
+    $node->next_gallery = array(
+      'id' => $next_gallery->nid,
+      'title' => $next_gallery->title,
+      'body' => !empty($next_gallery->body) ? $next_gallery->body[LANGUAGE_NONE][0]['safe_value'] : '',
+      'feature_img_uri' => $img_uri,
+      'pdate' => !empty($next_gallery->field_penton_published_datetime) ?
+      date('M d, Y', strtotime($next_gallery->field_penton_published_datetime[LANGUAGE_NONE][0]['value'])) : '',
+    );
+  }
+
+  $publish_time = strtotime($node->field_penton_published_datetime[LANGUAGE_NONE][0]['value']);
+
+  $node->auth_name = '';
+  if (!empty($node->field_penton_author)) {
+    $node->auth_name = user_load($node->field_penton_author[LANGUAGE_NONE][0]['target_id'])->name;
+    $node->auth_url = l($node->auth_name, 'user/' . $node->field_penton_author[LANGUAGE_NONE][0]['target_id'], array('html' => TRUE));
+  }
+
+  $node->pdate = date('M d, Y', $publish_time);
+  // Create array with images.
+  $image_arr = array();
+
+  // Array of images.
+  foreach ($node->field_penton_link_image_gallery[LANGUAGE_NONE] as $key => $img_id) {
+    $img_media_node = node_load($img_id['target_id']);
+    $slide_title = !empty($img_media_node->title) ? $img_media_node->title : '';
+
+    // Temporary workaround to hide slide title if it matches image filename.
+    if (!empty($slide_title)
+      && !empty($img_media_node->field_penton_media_image[LANGUAGE_NONE][0]['filename'])
+      && $img_media_node->title == $img_media_node->field_penton_media_image[LANGUAGE_NONE][0]['filename']) {
+      $slide_title = '';
+    }
+
+    $image_arr[] = array(
+      'title' => $slide_title,
+      'caption' => (!empty($img_media_node->field_penton_content_summary[LANGUAGE_NONE][0]['value'])) ? $img_media_node->field_penton_content_summary[LANGUAGE_NONE][0]['value'] : '',
+      'credit' => (!empty($img_media_node->field_penton_media_credit[LANGUAGE_NONE][0]['safe_value'])) ? $img_media_node->field_penton_media_credit[LANGUAGE_NONE][0]['safe_value'] : '',
+      'url' => image_style_url('gal_landscape_main_1_standard', $img_media_node->field_penton_media_image[LANGUAGE_NONE][0]['uri']),
+      'url_retina' => image_style_url('gal_landscape_main_1_retina', $img_media_node->field_penton_media_image[LANGUAGE_NONE][0]['uri']),
+      'thumb' => image_style_url('gal_thumbs_standard', $img_media_node->field_penton_media_image[LANGUAGE_NONE][0]['uri']),
+      'thumb_retina' => image_style_url('gal_thumbs_retina', $img_media_node->field_penton_media_image[LANGUAGE_NONE][0]['uri']),
+    );
+  }
+  $node->images = $image_arr;
+  $node->banner = '<div data-dfp-position="jumbotron"></div>';
+
+  return $node;
+}
+
+/**
+ * Full gallery page content(slideshow).
+ *
+ * @param object $node
+ *   The node for filling.
+ *
+ * @return string
+ *   Render content.
+ */
+function penton_gallery_fullpage($node) {
+
+  drupal_add_js(drupal_get_path('module', 'penton_full_gallery') . '/files/gallery.js', 'file');
+
+  $article_type = !empty($node->field_penton_article_type[LANGUAGE_NONE][0]['tid']) ?
+    drupal_strtolower(taxonomy_term_load($node->field_penton_article_type[LANGUAGE_NONE][0]['tid'])->name) :
+    FALSE;
+
+  if ($article_type != 'gallery' || empty($node->field_penton_link_image_gallery)) {
+    drupal_not_found();
+  }
+  if (!empty($_GET['curr'])) {
+    $complete_node = penton_make_full_gallery($node, TRUE);
+  }
+  else {
+    $complete_node = penton_make_full_gallery($node);
+  }
+
+  // Generate metatags output.
+  // Cannot module_invoke because url is not entity url.
+  if ($output = metatag_generate_entity_metatags($node, 'node', LANGUAGE_NONE, 'full')) {
+    list($node->nid, $node->vid, $node->type) = entity_extract_ids('node', $node);
+    $instance = "node:{$node->type}";
+    metatag_page_set_metatags($instance, $output);
+  }
+
+  $page = node_view($complete_node);
+
+  return drupal_render($page);
+}
+
+/**
+ * Check access to this url.
+ *
+ * @param object $node
+ *   The node for filling.
+ *
+ * @return bool
+ *   Give access or redirect.
+ */
+function get_access($buff, $node) {
+  $privacy_node = _penton_gated_get_level($node);
+  $gating_level = $privacy_node;
+  global $user;
+  if (!user_has_role($privacy_node)) {
+    while ($privacy_node <= PENTON_GATED_PAID_PREMIUM_RID) {
+      if (isset($user->roles[$privacy_node])) {
+        return TRUE;
+      }
+      $privacy_node++;
+    }
+    if (user_access('administer nodes') && user_access('administer users')) {
+      $role = user_role_load($gating_level);
+      drupal_set_message(t('This content accessible for users with %role role.', array('%role' => $role->name)));
+    }
+    drupal_goto($path = 'node/' . $node->nid);
+  }
+  else {
+    return TRUE;
+  }
+}
+
+/**
+ * Implements hook_pathauto_alias_alter().
+ *
+ * Generates path alias for full gallery view if autopath was enabled.
+ */
+function penton_full_gallery_pathauto_alias_alter(&$alias, array &$context) {
+  if ($context['module'] == 'node'
+    && !empty($context['data']['node'])
+    && PENTON_FULL_GALLERY_ARTICLE_TYPE == penton_core_node_subtype($context['data']['node']->nid)) {
+    _penton_full_gallery_update_full_gallery_alias($context['source'], $alias);
+  }
+}
+
+/**
+ * Implements hook_node_update().
+ *
+ * Generates path alias for full gallery view if autopath was disabled.
+ */
+function penton_full_gallery_node_update($node) {
+  if (empty($node->path['pathauto'])
+    && PENTON_FULL_GALLERY_ARTICLE_TYPE == penton_core_node_subtype($node->nid)) {
+    _penton_full_gallery_update_alias($node->nid);
+  }
+}
+
+/**
+ * Implements hook_node_insert().
+ *
+ * Generates path alias for full gallery view if autopath was disabled.
+ */
+function penton_full_gallery_node_insert($node) {
+  if (empty($node->path['pathauto'])
+    && PENTON_FULL_GALLERY_ARTICLE_TYPE == penton_core_node_subtype($node->nid)) {
+    _penton_full_gallery_update_alias($node->nid);
+  }
+}
+
+/**
+ * Update URL alias for full gallery view for specific gallery.
+ */
+function _penton_full_gallery_update_alias($nid) {
+  $result = db_select('url_alias', 'u')
+    ->fields('u')
+    ->condition('u.source', 'node/' . $nid)
+    ->range(0, 1)
+    ->execute();
+
+  while ($row = $result->fetch()) {
+    _penton_full_gallery_update_full_gallery_alias($row->source, $row->alias);
+  }
+}
+
+/**
+ * Update URL alias for full gallery view.
+ */
+function _penton_full_gallery_update_full_gallery_alias($source, $alias) {
+  path_delete(array('source' => $source . '/gallery'));
+  $path = array(
+    'source' => $source . '/gallery',
+    'alias' => $alias . '/gallery',
+  );
+  path_save($path);
+}
+
+/**
+ * Updates full gallery aliases for all articles of type gallery.
+ */
+function _penton_full_gallery_update_aliases($nid = NULL) {
+  $query = db_select('node', 'n');
+  $query->join('url_alias', 'url', "url.source like concat('node/', n.nid, '%')");
+  $query->join('taxonomy_term_data', 'ttd', "lower(ttd.name) = :article_type", array(':article_type' => PENTON_FULL_GALLERY_ARTICLE_TYPE));
+  $query->join('field_data_field_penton_article_type', 'at', 'at.field_penton_article_type_tid = ttd.tid');
+  $query->where('n.nid = at.entity_id');
+  $query->fields('url', array('source', 'alias'));
+  $query->addExpression('(sum(1) > 1)', 'has_gallery_alias');
+  $query->groupBy('n.nid');
+  $query->havingCondition('has_gallery_alias', '0', '=');
+
+  if ($nid) {
+    $query->where('n.nid = :nid', array(':nid' => $nid));
+  }
+
+  $result = $query->execute();
+  while ($row = $result->fetch()) {
+    $path = array(
+      'source' => $row->source . '/gallery',
+      'alias' => $row->alias . '/gallery',
+    );
+    path_save($path);
+  }
+}

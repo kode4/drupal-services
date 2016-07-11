@@ -1,0 +1,26 @@
+<?php
+/**
+ * @file
+ * Install, update and uninstall functions for the Penton vela module.
+ */
+
+/**
+ * Implements hook_requirements().
+ */
+function penton_vela_requirements($phase) {
+  if ($phase == 'runtime') {
+    $requirements['vela'] = array(
+      'title' => 'Vela Gateway',
+      'value' => VERSION,
+    );
+    if (!variable_get('penton_vela_api_key')) {
+      $requirements['vela']['severity'] = REQUIREMENT_ERROR;
+      $requirements['vela']['description'] = "You have not set an API key for Vela. <a href=\"/admin/store/settings/payment/method/credit\">Do so now!</a>";
+    }
+    else {
+      $requirements['vela']['severity'] = REQUIREMENT_OK;
+      $requirements['vela']['description'] = "API Key is set for Vela.";
+    }
+    return $requirements;
+  }
+}

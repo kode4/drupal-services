@@ -1,0 +1,5 @@
+name = Penton XML Sitemap
+package = Penton
+description = XML Sitemap Penton module which extends the contrib module
+core = 7.x
+version = "7.x-0.1"

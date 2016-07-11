@@ -1,0 +1,201 @@
+<?php
+
+/**
+ * @file
+ * Provides unit and basic functional tests for penton_infinite_scroll module
+ */
+
+/**
+ * Check if users have proper access level to site pages.
+ */
+class PentonInfiniteScrollTestCase extends DrupalWebTestCase {
+
+	//protected $profile = 'penton';
+	//protected $browser = 'firefox';
+
+	private $simple_nodes = array();
+	private $promoted_nodes = array();
+
+	/**
+	 * Return info about test case.
+	 */
+	public static function getInfo() {
+		return array(
+			'name' => 'Penton Infinite Scroll Unit Test',
+			'description' => 'Unit tests for penton_infinite_scroll module',
+			'group' => 'TT',
+			'browsers' => array('firefox'),
+		);
+	}
+
+	protected function setUp() {
+		parent::setUp(
+			array(
+				// Must-have modules
+				'features',
+				'date',
+				'date_api',
+				'entity',
+				'entityreference',
+				'pathauto',
+				'penton_core',
+				// Modules required for testing
+				'penton_infinite_scroll',
+			)
+		);
+
+		$features = array(
+			'penton_date_formats',
+			'penton_field_bases',
+			'penton_article',
+		);
+		$success = module_enable($features);
+		$this->assertTrue($success, 'Enabled features: ' . implode(', ', $features));
+		features_revert();
+
+		// Create 15 nodes and promote random 10 of them.
+		$all_nids = range(1, 15);
+		shuffle($all_nids);
+		$promoted_nids = array_slice($all_nids, 0, 10);
+		$timestamp = time() - 20*10;
+		for ($i = 1; $i < 20; $i++) {
+			$node_fields['type'] = 'article';
+			$node_fields['promote'] = 0;
+			$node_fields['field_penton_published_datetime']['und'][0]['value'] = date('Y-m-d H:i:s', $timestamp);
+			if (in_array($i, $promoted_nids)) {
+				$node_fields['promote'] = 1;
+				$bucket = 'promoted_nodes';
+			} else {
+				$bucket = 'simple_nodes';
+			}
+			$node = $this->drupalCreateNode($node_fields);
+			$this->{$bucket}[$node->nid] = $node;
+			$timestamp += mt_rand(1, 10); // Nodes will have proper cronological order.
+		}
+		$this->promoted_nodes = array_reverse($this->promoted_nodes, TRUE);
+		$this->simple_nodes = array_reverse($this->simple_nodes, TRUE);
+	}
+
+	/**
+	 * Test _penton_infinite_scroll_get_infscr_adjacents() function.
+	 */
+	public function testInfscrAdjacents() {
+		$nodes = penton_infinite_scroll_get_promoted_nodes();
+		$promoted_nids = array_keys($this->promoted_nodes);
+
+		// Test if current node is in the beginning of promo array
+		$curr_node = $this->promoted_nodes[$promoted_nids[0]];
+		$next_node = $this->promoted_nodes[$promoted_nids[1]];
+		$adjacents = _penton_infinite_scroll_get_infscr_adjacents($curr_node, $nodes);
+		$this->assertTrue($adjacents['next']->nid === $next_node->nid, 'Adjacents, curr node is first in promo list: test next is properly set');
+		$this->assertTrue($adjacents['prev'] === NULL, 'Adjacents, curr node is first in promo list: test prev is NULL');
+
+		// Test node from the middle of an array
+		$curr_node = $this->promoted_nodes[$promoted_nids[5]];
+		$next_node = $this->promoted_nodes[$promoted_nids[6]];
+		$prev_node = $this->promoted_nodes[$promoted_nids[4]];
+		$adjacents = _penton_infinite_scroll_get_infscr_adjacents($curr_node, $nodes);
+		$this->assertTrue($adjacents['next']->nid === $next_node->nid, 'Adjacents, curr node is in the middle of promo list: assert next is correct');
+		$this->assertTrue($adjacents['prev']->nid === $prev_node->nid, 'Adjacents, curr node is in the middle of promo list: assert prev is correct');
+
+		// Test if in the end of array
+		$curr_node = $this->promoted_nodes[$promoted_nids[9]];
+		$prev_node = $this->promoted_nodes[$promoted_nids[8]];
+		$adjacents = _penton_infinite_scroll_get_infscr_adjacents($curr_node, $nodes);
+		$this->assertTrue($adjacents['next'] === NULL, 'Adjacents, curr node is in the middle of promo list: assert next is NULL');
+		$this->assertTrue($adjacents['prev']->nid === $prev_node->nid, 'Adjacents, curr node is in the middle of promo list: assert prev is correct');
+
+		// Test if outside of array
+		$curr_node = current($this->simple_nodes);
+		$adjacents = _penton_infinite_scroll_get_infscr_adjacents($curr_node, $nodes);
+		$this->assertTrue($adjacents['next'] === NULL, 'Adjacents, curr node is outside promo list: assert next = NULL');
+		$this->assertTrue($adjacents['prev'] === NULL, 'Adjacents, curr node is outside promo list: assert prev = NULL');
+
+
+		/**
+		 * NOW, TEST AVAILABILITY OF LAZY PAGER ON NODE PAGES
+		 * TODO: should be implemented as a separate test, but how to avoid self::setUp() running twice (this hits performance)?
+		 */
+
+		// Visited 1st promoted node
+		$curr_node = $this->promoted_nodes[$promoted_nids[0]];
+		$next_node = $this->promoted_nodes[$promoted_nids[1]];
+		$next_infscr_url = url('node/' . $next_node->nid, ['query' => ['parent' => $curr_node->nid, 'infscr' => 1]]);
+		$this->drupalGet(url('node/' . $curr_node->nid, ['absolute' => TRUE]));
+		$this->assertRaw(
+			'<li class="read-more pagination-read-more next first"><a href="' . $next_infscr_url . '">Load More</a></li>',
+			'Im on 1st promo page > Lazy link to 2nd is present in the DOM'
+		);
+		$this->assertRaw(
+			'<a href="' . url('node/' . $next_node->nid) . '" rel="next">Next Article</a></li>',
+			'Im on 1st promo page > Link[rel=next] to 2nd is present in the DOM'
+		);
+		$this->assertNoRaw(
+			'rel="prev">Previous Article</a></li>',
+			'Im on 1st promo page > Link[rel=prev] is not present into DOM'
+		);
+
+		// Advance to next page
+		$curr_node = $this->promoted_nodes[$promoted_nids[2]];
+		$next_node = $this->promoted_nodes[$promoted_nids[3]];
+		$next_infscr_node = $this->promoted_nodes[$promoted_nids[0]];
+		$prev_node = $this->promoted_nodes[$promoted_nids[1]];
+		$next_infscr_url = url('node/' . $next_infscr_node->nid, ['query' => ['parent' => $curr_node->nid, 'infscr' => 1]]);
+		$this->drupalGet(url('node/' . $curr_node->nid, ['absolute' => TRUE]));
+		$this->assertRaw(
+			'<li class="read-more pagination-read-more next first"><a href="' . $next_infscr_url . '">Load More</a></li>',
+			'Im on 2nd promo page > Lazy link to 3rd is present in the DOM'
+		);
+		$this->assertRaw(
+			'<a href="' . url('node/' . $next_node->nid) . '" rel="next">Next Article</a></li>',
+			'Im on 2nd promo page > Link[rel=next] to 3rd is present in the DOM'
+		);
+		$this->assertRaw(
+			'<a href="' . url('node/' . $prev_node->nid) . '" rel="prev">Previous Article</a></li>',
+			'Im on 2nd promo page > Link[rel=prev] to 1st is present in the DOM'
+		);
+
+		// Advance to last page
+		$curr_node = $this->promoted_nodes[$promoted_nids[9]];
+		$next_node = $this->promoted_nodes[$promoted_nids[0]];
+		$prev_node = $this->promoted_nodes[$promoted_nids[8]];
+		$next_infscr_url = url('node/' . $next_node->nid, ['query' => ['parent' => $curr_node->nid, 'infscr' => 1]]);
+		$this->drupalGet(url('node/' . $curr_node->nid, ['absolute' => TRUE]));
+		$this->assertRaw(
+			'<a href="' . $next_infscr_url . '">Load More</a></li>',
+			'Im on last page > Lazy link to 1st promo is present in the DOM'
+		);
+		$this->assertNoRaw(
+			'rel="next">Next Article</a></li>',
+			'Im on last promo page > Link[rel=next] is not present in the DOM'
+		);
+		$this->assertRaw(
+			'<a href="' . url('node/' . $prev_node->nid) . '" rel="prev">Previous Article</a></li>',
+			'Im on last promo page > Link[rel=prev] to 9th is present in the DOM'
+		);
+
+		// Check from non-promoted page
+		$curr_node = current($this->simple_nodes);
+		$next_node = $this->promoted_nodes[$promoted_nids[0]];
+		$next_infscr_url = url('node/' . $next_node->nid, ['query' => ['parent' => $curr_node->nid, 'infscr' => 1]]);
+		$this->drupalGet(url('node/' . $curr_node->nid, ['absolute' => TRUE]));
+		$this->assertRaw(
+			'<li class="read-more pagination-read-more next first last"><a href="' . $next_infscr_url . '">Load More</a></li>',
+			'Im on non-promo page > Lazy link to 1st promo is present in the DOM'
+		);
+		$this->assertNoRaw(
+			'rel="next">Next Article</a></li>',
+			'Im on non-promo page > Link[rel=next] is not present in the DOM'
+		);
+		$this->assertNoRaw(
+			'rel="prev">Previous Article</a></li>',
+			'Im on non-promo page > Link[rel=prev] is not present into DOM'
+		);
+
+		//TODO: Check if not working for webinar and whitepaper
+		//TODO: Check if working on category page
+		//TODO: Make sure no duplicates (visit, say, 3rd promo, then scroll 3 times and verify that item is not loaded again)
+
+	}
+
+}

@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the penton_search feature.
+ */
+
+include_once 'penton_search.features.inc';

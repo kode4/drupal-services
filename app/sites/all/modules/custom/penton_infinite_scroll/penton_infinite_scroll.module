@@ -1,0 +1,180 @@
+<?php
+/**
+ * @file
+ * Adding Infinite Scroll to pages.
+ */
+
+/**
+ * Implements hook_node_view().
+ *
+ * Attach infinite-scroll related stuff to node.
+ */
+function penton_infinite_scroll_node_view($node, $view_mode, $langcode) {
+  // TODO: refactor the entire approach to infinite scroll
+  // We really should get rid of jscroll and leverage D7 ajax framework.
+  if ($node->type === 'article' && $view_mode === 'full') {
+    $starting_nid = filter_input(INPUT_GET, 'parent', FILTER_VALIDATE_INT) ?: FALSE;
+    $article_type = penton_core_node_subtype($node->nid);
+
+    $promoted_nodes = penton_infinite_scroll_get_promoted_nodes();
+    // Preserve 9 items in infinite list.
+    // Remove initial article or last entry from infinite scroll array.
+    if ($starting_nid && isset($promoted_nodes[$starting_nid])) {
+      unset($promoted_nodes[$starting_nid]);
+    }
+    elseif (is_ajax()) {
+      array_pop($promoted_nodes);
+    }
+    $adjacents = _penton_infinite_scroll_get_infscr_adjacents($node, $promoted_nodes);
+    $curr_node_offset = array_search($node->nid, array_keys($promoted_nodes)) + 1;
+
+    // Determine next node for infinite scroll.
+    if ((!is_ajax() && in_array($article_type, ['webinar', 'white-paper'])) || (is_ajax() && $curr_node_offset >= count($promoted_nodes))) {
+      $next_infscr_node = FALSE;
+    }
+    elseif (($starting_nid || $curr_node_offset === 1) && !empty($adjacents['next'])) {
+      $next_infscr_node = $adjacents['next'];
+    }
+    else {
+      $next_infscr_node = current($promoted_nodes);
+    }
+    $initial_nid = $starting_nid ?: $node->nid;
+    $node->content['lazy_pager'] = penton_infinite_scroll_lazy_pager($initial_nid, $next_infscr_node, $adjacents['next'], $adjacents['prev']);
+    // Inject newsletter signup after every even article.
+    if (is_ajax() && $curr_node_offset % 2 == 0 && module_exists('penton_user_register') && module_exists('penton_newsletter_manager')) {
+      // TODO: move this to penton_newsletter_manager module and
+      // put here a hook like module_invoke('interstitial').
+      $block = block_load('penton_blocks', 'penton_newsletter_signup');
+      $node->content['newsletter_signup'] = _block_get_renderable_array(_block_render_blocks(array($block)));
+      $ajax_settings[] = array(
+        'ajax' => array(
+          'edit-subscribe' => array(
+            'callback' => 'penton_user_register_newsletter_signup_callback',
+            'url' => url('system/ajax'),
+            'wrapper' => "formwrapper",
+            'method' => "replaceWith",
+            'event' => "mousedown",
+          ),
+        ),
+      );
+      drupal_add_js(
+        'jQuery.extend(true, Drupal.settings, ' . drupal_json_encode(drupal_array_merge_deep_array($ajax_settings)) . ");",
+        array('type' => 'inline', 'scope' => 'ajax')
+      );
+    }
+  }
+  return $node;
+}
+
+/**
+ * Implements hook_page_delivery_callback_alter().
+ */
+function penton_infinite_scroll_page_delivery_callback_alter(&$callback) {
+  if (filter_input(INPUT_GET, 'infscr')) {
+    drupal_add_http_header('X-Robots-Tag', 'noindex');
+    $callback = '_penton_infinite_scroll_deliver_html_page';
+  }
+}
+
+/**
+ * Infinite scroll callback. Render only node template, without layout.
+ */
+function _penton_infinite_scroll_deliver_html_page($page_callback_result) {
+  print drupal_render($page_callback_result);
+  $javascript = drupal_add_js();
+  drupal_add_js('jQuery.extend(true, Drupal.settings, ' . drupal_json_encode(drupal_array_merge_deep_array($javascript['settings']['data'])) . ");", array('type' => 'inline', 'scope' => 'ajax'));
+  print drupal_get_js('ajax');
+}
+
+/**
+ * Get up to 9 nodes promoted to the front page.
+ */
+function penton_infinite_scroll_get_promoted_nodes() {
+  $promoted_nodes = &drupal_static(__FUNCTION__, array());
+  if (!$promoted_nodes) {
+    $query = new EntityFieldQuery();
+    $query->entityCondition('entity_type', 'node')
+      ->entityCondition('bundle', 'article')
+      ->propertyCondition('promote', NODE_PROMOTED)
+      ->propertyCondition('status', NODE_PUBLISHED);
+    $query
+      ->fieldOrderBy('field_penton_published_datetime', 'value', 'DESC')
+      ->propertyOrderBy('changed', 'DESC')
+      ->range(0, 10);
+
+    $result = $query->execute();
+    $promoted_nodes = !empty($result['node']) ? $result['node'] : FALSE;
+  }
+  return $promoted_nodes;
+}
+
+/**
+ * Extract prev and next items from nodes array.
+ *
+ * @param object $node
+ *   node that should be considered 'current' into $nodes array
+ *
+ * @param array $nodes
+ *   array of node objects
+ *
+ * @return array
+ *   [prev => node, next => node]
+ */
+function _penton_infinite_scroll_get_infscr_adjacents($node, $nodes) {
+  $res = array(
+    'prev' => NULL,
+    'next' => NULL,
+  );
+  while ($_node = current($nodes)) {
+    $_next = next($nodes);
+    if ($_node->nid === $node->nid) {
+      if ($_next) {
+        $res['next'] = $_next;
+      }
+      if (!empty($_prev)) {
+        $res['prev'] = $_prev;
+      }
+    }
+    $_prev = $_node;
+  }
+  return $res;
+}
+
+/**
+ * Return render array for infinite pager.
+ */
+function penton_infinite_scroll_lazy_pager($starting_nid, $next_infscr_node, $next_node = NULL, $prev_node = NULL) {
+  $render = array(
+    '#theme' => 'item_list',
+    '#items' => array(),
+    '#attributes' => array(
+      'class' => array('lazy-pagination'),
+    ),
+    '#weight' => '5',
+  );
+  if ($next_infscr_node) {
+    $render['#items'][] = array(
+      'data' => '<a href="' . url('node/' . $next_infscr_node->nid, ['query' => ['parent' => $starting_nid, 'infscr' => 1]]) . '" rel="nofollow">' . t('Load More') . '</a>',
+      'class' => ['read-more pagination-read-more next'],
+    );
+  }
+  if ($next_node) {
+    $render['#items'][] = array(
+      'data' => theme('link', array(
+        'text' => t('Next Article'),
+        'path' => 'node/' . $next_node->nid,
+        'options' => ['attributes' => ['rel' => 'next'], 'html' => TRUE],
+      )),
+    );
+  }
+  if ($prev_node) {
+    $render['#items'][] = array(
+      'data' => theme('link', array(
+        'text' => t('Previous Article'),
+        'path' => 'node/' . $prev_node->nid,
+        'options' => ['attributes' => ['rel' => 'prev'], 'html' => TRUE],
+      )),
+    );
+  }
+  return $render;
+}

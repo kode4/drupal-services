@@ -1,0 +1,138 @@
+diff --git a/ife.info b/ife.info
+index f54073d..0971208 100644
+--- a/ife.info
++++ b/ife.info
+@@ -4,6 +4,8 @@ package = User interface
+ core = 7.x
+ configure = admin/config/user-interface/ife
+
++dependencies[] = ctools
++
+ files[] = ife.install
+ files[] = ife.module
+ files[] = ife.settings.inc
+diff --git a/ife.module b/ife.module
+index 5e738b6..9556872 100644
+--- a/ife.module
++++ b/ife.module
+@@ -75,10 +75,10 @@ function ife_help($path, $arg) {
+ /**
+  * Menu loader function to fetch a form id.
+  */
+-function ife_form_id_load($form_id) {
+-  $form_ids = ife_load_form_ids();
++function ife_form_id_load($form_id, $reset = FALSE) {
++  $form_ids = ife_load_form_ids($reset);
+
+-  foreach((array) $form_ids as $form_id_pattern => $form_settings) {
++  foreach ((array) $form_ids as $form_id_pattern => $form_settings) {
+     if (ife_match_form_id($form_id, $form_id_pattern)) {
+       return $form_settings;
+     }
+@@ -129,37 +129,25 @@ function ife_theme() {
+ }
+
+ /**
+- *  Load all form ids from the data base
++ * Load all form ids from the data base.
+  */
+-function ife_load_form_ids() {
+-  static $ife_form_ids;
+-
+-  if ($ife_form_ids) {
+-    $form_ids = $ife_form_ids;
+-  }
+-  else {
+-    $cache = cache_get('ife_form_ids', 'cache');
+-    if ($cache) {
+-      $form_ids = $cache->data;
+-    }
++function ife_load_form_ids($reset = FALSE) {
++  ctools_include('export');
++  static $form_ids;
++
++  // Ensure that the schema cache is not stale when trying to load.
++  $schema = drupal_get_schema('ife');
++  if (!isset($schema['export']) || $reset) {
++    ctools_export_load_object_reset('ife');
++    drupal_get_schema('ife', TRUE);
+   }
+
+-  if (empty($form_ids)) {
+-
+-    $result = db_select('ife')
+-      ->fields('ife', array('form_id', 'field_types', 'status', 'display'))
+-      ->orderBy('form_id')
+-      ->execute();
+-
+-    $form_ids = array();
+-    foreach ($result as $row) {
+-      $form_ids[$row->form_id] = $row;
+-    }
+-    cache_set('ife_form_ids', $form_ids, 'cache');
++  // Load form settings.
++  if (!isset($form_ids) || $reset) {
++    $form_ids = ctools_export_load_object('ife');
+   }
+
+-  $ife_form_ids = $form_ids;
+-  return $ife_form_ids;
++  return $form_ids;
+ }
+
+ /**
+@@ -324,3 +312,24 @@ function ife_element_info_alter(&$types) {
+     }
+   }
+ }
++
++/**
++ * Implements hook_schema_alter().
++ *
++ * Makes the ife table usable by ctools' export.inc.
++ */
++function ife_schema_alter(&$schema) {
++  $schema['ife']['export'] = array(
++    'key' => 'form_id',
++    'primary key' => 'form_id',
++    'identifier' => 'ife',
++    'default hook' => 'ife_default_settings',
++    'can disable' => FALSE,
++    'api' => array(
++      'owner' => 'ife',
++      'api' => 'ife',
++      'minimum_version' => 1,
++      'current_version' => 1,
++    ),
++  );
++}
+diff --git a/ife.settings.inc b/ife.settings.inc
+index 9a7a0d9..91e245e 100644
+--- a/ife.settings.inc
++++ b/ife.settings.inc
+@@ -58,7 +58,7 @@ function ife_settings_form($form, $form_state) {
+     '#theme' => 'ife_settings_form_ids',
+   );
+
+-  $form_ids = ife_load_form_ids();
++  $form_ids = ife_load_form_ids(TRUE);
+   foreach ($form_ids as $form_id) {
+     $form['form_ids'][$form_id->form_id] = array();
+     $form['form_ids'][$form_id->form_id]['form_id'] = array('#markup' => $form_id->form_id);
+@@ -152,7 +152,7 @@ function ife_settings_form_submit($form, &$form_state) {
+   }
+
+   drupal_set_message(t('The settings have been saved'));
+-  cache_clear_all('ife_form_ids', 'cache');
++  ife_load_form_ids(TRUE);
+ }
+
+ /**
+@@ -185,6 +185,6 @@ function ife_form_id_delete_form_submit($form, &$form_state) {
+   ->execute();
+   drupal_set_message(t('The form %form_id has been deleted.', array('%form_id' => $form_id)));
+
+-  cache_clear_all('ife_form_ids', 'cache');
++  ife_load_form_ids(TRUE);
+   drupal_goto('admin/config/user-interface/ife');
+ }

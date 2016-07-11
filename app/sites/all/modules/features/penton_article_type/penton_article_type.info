@@ -1,0 +1,11 @@
+name = Penton Article Type
+description = Define the Article type vocabulary
+core = 7.x
+package = Penton Features
+version = 7.x-1.0-dev
+features[features_api][] = api:2
+features[taxonomy][] = article_type
+features_exclude[dependencies][features] = features
+features_exclude[dependencies][taxonomy] = taxonomy
+no autodetect = 1
+project path = sites/all/modules/features

@@ -1,0 +1,14 @@
+name = Penton Data Tables
+description = The main datatable features
+core = 7.x
+package = Penton Features
+version = 7.x-1.0-dev
+project = penton_data_tables
+features[ctools][] = strongarm:strongarm:1
+features[features_api][] = api:2
+features[variable][] = book_allowed_types
+features[variable][] = book_child_type
+features_exclude[dependencies][ctools] = ctools
+features_exclude[dependencies][strongarm] = strongarm
+no autodetect = 1
+project path = sites/all/modules/features

@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Article feature.
+ */
+
+include_once 'penton_article.features.inc';

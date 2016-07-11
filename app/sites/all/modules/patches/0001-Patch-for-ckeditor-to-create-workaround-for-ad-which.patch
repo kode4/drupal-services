@@ -1,0 +1,27 @@
+From a9c33ea373fdddefe70af075bb0fa4752e687c95 Mon Sep 17 00:00:00 2001
+From: Dmitry Belousov <dbelousov@thumbtack.net>
+Date: Mon, 28 Mar 2016 11:25:25 +0600
+Subject: [PATCH] Patch for ckeditor to create workaround for ad which brokes
+ it
+
+---
+ app/sites/all/modules/contrib/ckeditor/includes/ckeditor.utils.js | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/app/sites/all/modules/contrib/ckeditor/includes/ckeditor.utils.js b/app/sites/all/modules/contrib/ckeditor/includes/ckeditor.utils.js
+index ce22cd4..0f61fa0 100644
+--- a/app/sites/all/modules/contrib/ckeditor/includes/ckeditor.utils.js
++++ b/app/sites/all/modules/contrib/ckeditor/includes/ckeditor.utils.js
+@@ -215,6 +215,9 @@ if (typeof window.CKEDITOR_BASEPATH === 'undefined') {
+     }
+     if (typeof CKEDITOR.plugins != 'undefined') {
+       for (var plugin in textarea_settings['loadPlugins']) {
++        if(!textarea_settings['loadPlugins'].hasOwnProperty(plugin)) {
++            continue;
++        }
+         textarea_settings.extraPlugins += (textarea_settings.extraPlugins) ? ',' + textarea_settings['loadPlugins'][plugin]['name'] : textarea_settings['loadPlugins'][plugin]['name'];
+         CKEDITOR.plugins.addExternal(textarea_settings['loadPlugins'][plugin]['name'], textarea_settings['loadPlugins'][plugin]['path']);
+       }
+-- 
+1.9.1
+

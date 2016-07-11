@@ -1,0 +1,127 @@
+<?php
+
+/**
+ * @file
+ * Tests for the penton_article feature module
+ */
+
+
+/**
+ * Class PentonarticleTests.
+ *
+ * Creates an article node and tests it exists.
+ *
+ * @author James Linnell.
+ */
+class PentonarticleTests extends DrupalWebTestCase {
+
+  private $adminUser;
+
+  /**
+   * Metadata about the test case.
+   */
+  public static function getInfo() {
+    return array(
+      'name' => 'Penton Article Feature',
+      'description' => 'Tests that content can be created into the Penton Articles',
+      'group' => 'Penton',
+    );
+  }
+
+  /**
+   * Perform setup tasks.
+   */
+  public function setUp() {
+    parent::setUp(
+      array(
+        'field_sql_storage',
+        'field',
+        'field_ui',
+        'filter',
+        'image',
+        'text',
+        'statistics',
+        'entityreference',
+        'features',
+        'field_group',
+        'date_api',
+        'date',
+        'role_field',
+        'taxonomy',
+        'views',
+        'penton_field_bases',
+        'penton_article',
+      )
+    );
+
+    // Run a features rebuild to ensure our feature is fully installed.
+    features_rebuild();
+
+    variable_set('statistics_enable_access_log', 1);
+    variable_set('statistics_count_content_views', 1);
+    $this->refreshVariables();
+
+    // Create an admin user for running tests.
+    $this->adminUser = $this->drupalCreateUser(
+      array(
+        'administer content types',
+        'administer nodes',
+        'edit any article content',
+        'access content',
+        'view post access counter',
+        'bypass node access',
+      )
+    );
+  }
+
+  /**
+   * Create an article.
+   */
+  public function testCreateArticle() {
+    $this->drupalLogin($this->adminUser);
+    $title = $this->randomName();
+    // $language = LANGUAGE_NONE;
+    $settings = array(
+      'type' => 'article',
+      'promote' => 0,
+      'title' => $title,
+      'body' => array(
+        LANGUAGE_NONE => array(
+          array(
+            'value' => 'Body goes here',
+            'format' => filter_default_format(),
+          ),
+        ),
+      ),
+    );
+    $node = $this->drupalCreateNode($settings);
+    $this->verbose($node->nid);
+    $this->drupalGet('node/' . $node->nid);
+    $this->assertText($title, 'Node title was found');
+    $this->assertText('Body goes here', 'Body text is correct');
+
+    $edit = array();
+  //  $time = REQUEST_TIME;
+  //  $date = date('Y-m-d H:i:s', $time);
+  //  $output_date = date('M d, Y', $time);
+
+    $edit['body[und][0][value]'] = 'Body has been edited';
+    $this->drupalGet('node/' . $node->nid . '/edit');
+  //  $this->assertField('field_penton_content_summary', 'Summary field exists');
+    $this->drupalPost("node/$node->nid/edit", $edit, t('Save'));
+
+  //  $edit['field_penton_errata_date[und][0][value]'] = $date;
+  //  $this->drupalGet('node/' . $node->nid . '/edit');
+  //  $this->drupalPost("node/$node->nid/edit", $edit, t('Save'));
+
+  //  $edit['field_penton_content_summary[und][0][value]'] = 'This is the content summary';
+  //  $this->drupalGet('node/' . $node->nid . '/edit');
+  //  $this->drupalPost("node/$node->nid/edit", $edit, t('Save'));
+
+    $this->drupalGet('node/' . $node->nid);
+  //  $this->assertText($output_date, 'Date field set to ' . $output_date);
+    $this->assertNoText('Body goes here', 'Original Body text does not exist');
+    $this->assertText('Body has been edited', 'Body text has changed');
+  //  $this->assertText('This is the content summary', 'Summary text has been added correctly');
+  }
+}

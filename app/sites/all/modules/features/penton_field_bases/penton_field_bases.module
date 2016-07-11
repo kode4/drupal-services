@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Field Bases feature.
+ */
+
+include_once 'penton_field_bases.features.inc';

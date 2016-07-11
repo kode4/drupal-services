@@ -1,0 +1,5 @@
+name = Penton Legal Commuinication
+package = Penton
+description = Legal Commuinication Messages
+core = 7.x
+version = "7.x-0.1"

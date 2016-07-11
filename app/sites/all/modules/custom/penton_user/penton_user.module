@@ -1,0 +1,1145 @@
+<?php
+/**
+ * @file
+ * Manages Penton user-related features.
+ */
+
+/**
+ * Define role id for advanced gating.
+ */
+define('PENTON_USER_UNVERIFIED_RID', 7);
+define('PENTON_USER_TEMPLATES_PATH', drupal_get_path('module', 'penton_user') . '/templates');
+
+/**
+ * Implements hook_ctools_plugin_directory().
+ */
+function penton_user_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'addressfield') {
+    return 'plugins/' . $plugin;
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function penton_user_theme(&$variables) {
+  // TODO: add ability to nest this templates in subthemes.
+  $templates_path = drupal_get_path('theme', 'penton_core_theme') . '/templates/user';
+  $items = array();
+
+  $items['user_login'] = array(
+    'render element' => 'form',
+    'path' => $templates_path,
+    'template' => 'user-login',
+  );
+  $items['user_pass'] = array(
+    'render element' => 'form',
+    'path' => $templates_path,
+    'template' => 'user-pass',
+  );
+  $items['penton_profile_form'] = array(
+    'render element' => 'form',
+    'path' => PENTON_USER_TEMPLATES_PATH,
+    'template' => 'penton-profile-form',
+  );
+  $items['penton_account_information_block_content'] = array(
+    'render element' => 'form',
+    'path' => PENTON_USER_TEMPLATES_PATH,
+    'template' => 'penton-user-account-information-block-content',
+  );
+  $items['penton_account_fields_category'] = array(
+    'path' => PENTON_USER_TEMPLATES_PATH,
+    'template' => 'penton-account-fields-category',
+    'arguments' => array(
+      'title' => NULL,
+      'caption' => NULL,
+      'fields' => NULL,
+      'user_profile' => NULL,
+    ),
+  );
+  $items['penton_account_user'] = array(
+    'path' => PENTON_USER_TEMPLATES_PATH,
+    'template' => 'penton-account-user',
+    'arguments' => array(),
+  );
+  $items['penton_account_author'] = array(
+    'path' => PENTON_USER_TEMPLATES_PATH,
+    'template' => 'penton-account-author',
+    'arguments' => array(),
+  );
+
+  $items['penton_account_field'] = array(
+    'path' => PENTON_USER_TEMPLATES_PATH,
+    'template' => 'penton-account-field',
+    'arguments' => array(
+      'field' => NULL,
+    ),
+  );
+
+  $items['penton_account_purchases'] = array(
+    'path' => PENTON_USER_TEMPLATES_PATH,
+    'template' => 'penton-account-purchases',
+    'arguments' => array(
+      'purchases' => NULL,
+    ),
+  );
+
+  $items['penton_account_esp'] = array(
+    'path' => PENTON_USER_TEMPLATES_PATH,
+    'template' => 'penton-account-esp',
+    'arguments' => array(
+      'esp_has_access' => NULL,
+      'esp_status' => NULL,
+      'esp_account_number' => NULL,
+      'esp_zip_code' => NULL,
+      'esp_expire_date' => NULL,
+    ),
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_token_info().
+ */
+function penton_user_token_info() {
+  $items['tokens']['user']['penton-verify-url'] = array(
+    'name' => t("Verify URL"),
+    'description' => t("The URL used to verify user's email address."),
+  );
+  $items['tokens']['user']['switchable_description'] = array(
+    'name' => t("Description"),
+    'description' => t("The metatag description for user equal summory field for author SEO string."),
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function penton_user_tokens($type, $tokens, array $data = array(), array $options = array()) {
+  global $user;
+
+  $replacements = array();
+  if ($type == 'user' && !empty($data['user'])) {
+    foreach ($tokens as $name => $original) {
+      if ($name == 'penton-verify-url') {
+        $replacements[$original] = _penton_user_get_verification_url($data['user']);
+      }
+      if ($name == 'switchable_description') {
+        $replacements[$original] = '';
+        preg_match('/user\/?(\d*)/', $_GET['q'], $matches);
+        $uid = (!empty($matches[1])) ? (int) $matches[1] : $user->uid;
+
+        if ($uid > 0) {
+          $load_user = user_load($uid);
+          $current_user = entity_metadata_wrapper('user', $load_user);
+          $author = user_role_load_by_name('author');
+
+          if (in_array($author->rid, $current_user->roles->value())) {
+            $replacements[$original] = token_replace('Read the latest stories written by [user:name] at [site:name]', array('user' => $load_user));
+          }
+          elseif (is_array($current_user->field_penton_summary->value()) && !empty($current_user->field_penton_summary->value()['value'])) {
+            $replacements[$original] = $current_user->field_penton_summary->value()['value'];
+          }
+        }
+      }
+    }
+  }
+  return $replacements;
+}
+
+/**
+ * Returns verification url for specific user.
+ */
+function _penton_user_get_verification_url($account) {
+  $registration_type = !empty($_SESSION['registration_type']) ? $_SESSION['registration_type'] : 'advanced';
+  return url("user/validate-email/{$registration_type}/{$account->uid}/" . user_pass_rehash($account->pass, $account->created, $account->login, $account->uid), array(
+    'absolute' => TRUE,
+  ));
+}
+
+/**
+ * Implements hook_menu().
+ */
+function penton_user_menu() {
+
+  $items['user/validate-email/%/%user/%'] = array(
+    'title'           => 'E-mail address validation',
+    'page callback'   => 'penton_user_validate_email',
+    'page arguments'  => array(2, 3, 4),
+    'access callback' => TRUE,
+  );
+
+  $items['user/%/preview'] = array(
+    'title'           => 'Public profile',
+    'page callback'   => 'penton_user_user_page_preview',
+    'page arguments'  => array(1),
+    'access callback' => TRUE,
+  );
+
+  return $items;
+}
+
+/**
+ * Page preview callback same as usual user_page_view.
+ */
+function penton_user_user_page_preview($user_id) {
+  $account = user_load($user_id);
+  return is_object($account) ? user_view($account) : MENU_NOT_FOUND;
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function penton_user_menu_alter(&$items) {
+  $items['user/%user/view']['title'] = 'My info';
+  unset($items['user/%user/edit']['access callback']);
+  $items['user/%user/edit']['access arguments'] = array('administer users');
+  $items['user/%user/purchased-files']['type'] = MENU_CALLBACK;
+  $items['user/%user/purchased-files']['access arguments'] = array('administer users');
+  unset($items['user/%user/purchased-files']['access callback']);
+}
+
+/**
+ * Returns a set of fields to render a public profile.
+ */
+function penton_user_get_public_profile_fields() {
+  return array(
+    'field_penton_salutation',
+    'field_penton_profile',
+    'field_penton_job_title',
+    'field_penton_summary',
+    'field_penton_primary_job_role',
+    'field_penton_secondary_job_role',
+    'field_penton_specialities',
+    'field_penton_skills',
+    'field_penton_degree_credential',
+    'field_penton_university',
+    'field_penton_additional_degree',
+    'field_penton_additional_school',
+  );
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function penton_user_form_user_profile_form_alter(&$form, &$form_state, $form_id) {
+  // Make sure only admins can see system fields on user.
+  $system_fields = array(
+    'field_penton_legacy_id',
+    'field_penton_source_id',
+    'field_penton_privacy_settings',
+    'field_penton_advantage_id',
+    'field_penton_legacy_node_access',
+    'field_penton_transaction_id',
+  );
+  foreach ($system_fields as $field_name) {
+    $form[$field_name]['#access'] = user_access('administer users');
+  }
+  $profile_fields = penton_user_get_public_profile_fields();
+  foreach ($profile_fields as $field_name) {
+    $form[$field_name]['#states'] = array(
+      'visible' => array(
+        ':input[name^=\'field_penton_display_profile\']' => array('checked' => TRUE),
+      ),
+    );
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function penton_user_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'user_login' || $form_id == 'user_pass') {
+    $register_link_classes = array(
+      'ctools-use-modal',
+      'text-link',
+    );
+    $is_basic = !empty($_GET['basic']) && $_GET['basic'] == 'basic';
+    $is_advanced = !empty($_GET['advanced']) && $_GET['advanced'] == 'advanced';
+    $register_link_href = '/penton_modal/nojs';
+    if ($is_basic) {
+      $register_link_classes[] = 'ctools-modal-modal-popup-basic';
+      $register_link_href .= '/basic_register';
+    }
+    else {
+      $register_link_classes[] = 'ctools-modal-modal-popup-medium';
+      if ($is_advanced) {
+        $register_link_href .= '/register/advanced';
+      }
+      else {
+        $register_link_href .= '/register/basic';
+      }
+    }
+
+    $form['register_href'] = array(
+      '#type' => 'link',
+      '#title' => t('Register now'),
+      '#href' => $register_link_href,
+      '#attributes' => array(
+        'class' => $register_link_classes ,
+        'rel' => 'nofollow',
+      ),
+      '#prefix' => t('Not a member?'),
+      '#suffix' => '.',
+    );
+
+    $form['actions']['submit']['#attributes']['class'][] = 'login-btn hrum';
+    $form['actions']['submit']['#value'] .= ' <i class="fa fa-chevron-right"></i>';
+
+    $form['name']['#attributes']['placeholder'][] = t('Your email address');
+  }
+
+  switch ($form_id) {
+    case 'user_pass':
+      $form['name']['#title'] = t('Email address:');
+      $form['name']['#element_validate'][] = 'penton_user_account_required_validate';
+
+      $form['#validate'][] = 'penton_user_account_form_validate';
+      $form['actions']['submit']['#value'] = t('Get password');
+      break;
+
+    case 'user_login':
+      $form['name']['#title'] = t('Username or email address:');
+      $form['name']['#element_validate'][] = 'penton_user_account_required_validate';
+
+      $form['pass']['#title'] = t('Password:');
+      $form['pass']['#attributes']['placeholder'][] = t('******');
+      $form['pass']['#element_validate'][] = 'penton_user_account_required_validate';
+
+      $form['forgot_password'] = array(
+        '#type' => 'link',
+        '#title' => t('Forgot password?'),
+        '#href' => '/penton_modal/nojs/password',
+        '#attributes' => array(
+          'class' => array(
+            'ctools-use-modal',
+            'ctools-modal-modal-popup-login',
+            'forgot-pass',
+          ),
+          'rel' => 'nofollow',
+        ),
+      );
+
+      if ($is_basic) {
+        $form['forgot_password']['#options']['query'] = array('basic' => 'basic');
+      }
+      elseif ($is_advanced) {
+        $form['forgot_password']['#options']['query'] = array('advanced' => 'advanced');
+      }
+
+      $form['#validate'][] = 'penton_user_account_form_validate';
+      break;
+
+    case 'user_profile_form':
+      $form['field_penton_summary']['#after_build'][] = 'penton_user_change_text_format';
+      if (($key = array_search('user_validate_current_pass', $form['#validate'])) !== FALSE) {
+        unset($form['#validate'][$key]);
+      }
+      $form['#validate'][] = 'penton_user_profile_form_validate';
+      $form['#submit'][] = 'penton_user_profile_form_submit';
+      if (array_key_exists(PENTON_AUTHOR_RID, $form['#user']->roles)) {
+        $form['field_penton_profile']['und'][0]['name_block']['middle_name']['#access'] = TRUE;
+      }
+      else {
+        $form['field_penton_profile']['und'][0]['name_block']['middle_name']['#access'] = FALSE;
+      }
+      $form['account']['name']['#title'] = t('Display name');
+      $path = drupal_get_path('module', 'penton_user') . '/scripts';
+      $jq_uis = array(array('system', 'ui.tooltip'), array('system', 'ui.tabs'));
+      foreach ($jq_uis as $jq_ui) {
+        $form['account']['#attached']['library'][] = $jq_ui;
+      }
+      $form['account']['#attached']['js'][] = "$path/penton_user.js";
+      break;
+
+    case 'forward_form':
+      $form['message']['email']['#element_validate'][] = 'penton_user_account_required_validate';
+      $form['#validate'][] = 'penton_forward_form_validate';
+      break;
+  }
+}
+
+/**
+ * It's callback for change text format for comment form.
+ */
+function penton_user_change_text_format(&$form) {
+  $form[LANGUAGE_NONE][0]['format']['format']['#value'] = $form[LANGUAGE_NONE][0]['format']['format']['#default_value'] = 'comments';
+
+  return $form;
+}
+
+/**
+ * Forces Drupal to show profile.
+ */
+function penton_user_profile_form_validate(&$form, &$form_state) {
+  $form_state['values']['field_penton_display_profile']['und'][0]['value'] = 1;
+  $form_state['values']['picture_delete'] = 0;
+  $secondary_mail = $form_state['values']['field_penton_secondary_email']['und'][0]['email'];
+  $primary_mail = $form_state['values']['mail'];
+  if ($primary_mail == $secondary_mail) {
+    form_set_error('field_penton_secondary_email', 'A secondary email address should be different than the primary one');
+  }
+}
+
+/**
+ * Change Drupal message when profile form is submitted.
+ */
+function penton_user_profile_form_submit(&$form, &$form_state) {
+  $_SESSION['messages'] = array('status' => array('Thanks! Your changes have been saved.'));
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ */
+function penton_user_entity_info_alter(&$entity_info) {
+  // Add view mode private profile.
+  $entity_info['user']['view modes']['penton_private_profile'] = array(
+    'label' => t('Private profile'),
+    'custom settings' => TRUE,
+  );
+}
+
+/**
+ * Implements hook_entity_view_mode_alter().
+ */
+function penton_user_entity_view_mode_alter(&$view_mode, $context) {
+  // Switch to 'Private profile' view mode if public profile is not checked.
+  if ($view_mode == 'full' && $context['entity_type'] == 'user') {
+    $account = $context['entity'];
+    if (empty($account->field_penton_display_profile) || $account->field_penton_display_profile['und'][0]['value'] == 0) {
+      $view_mode = 'penton_private_profile';
+      drupal_set_message(t("This is a private profile.<br>This message will not be displayed in further sprints."));
+    }
+  }
+}
+
+/**
+ * Implements hook_user_presave().
+ *
+ * Alter behavior of addressfield_field_presave()
+ * If first name consists of 2+ words and you block/unblock
+ * a user, only first word remains as first_name and
+ * the rest is prepended to last_name field.
+ *
+ * @see addressfield_field_presave()
+ */
+function penton_user_user_presave(&$edit, $account, $category) {
+  if (!empty($account->field_penton_profile[LANGUAGE_NONE][0])) {
+    unset($account->field_penton_profile[LANGUAGE_NONE][0]['name_line']);
+  }
+}
+
+/**
+ * Implements hook_field_attach_presave().
+ *
+ * Add support for more fields in addressfield.
+ */
+function penton_user_field_attach_presave($entity_type, $entity) {
+  if ($entity_type == 'user' && isset($entity->field_penton_profile)) {
+    $data = array();
+    $language = !empty($entity->language) ? $entity->language : LANGUAGE_NONE;
+    $default_fields = array(
+      'name_line',
+      'first_name',
+      'last_name',
+      'organisation_name',
+      'country',
+      'administrative_area',
+      'sub_administrative_area',
+      'locality',
+      'dependent_locality',
+      'postal_code',
+      'thoroughfare',
+      'premise',
+      'sub_premise',
+    );
+    if (isset($entity->field_penton_profile[$language][0])) {
+      foreach ($entity->field_penton_profile[$language][0] as $field => $value) {
+        // Compare fields with addressfield default fields
+        // and store any additional fields in data.
+        if (!in_array($field, $default_fields)) {
+          // Store additional field value.
+          $data[$field] = $value;
+        }
+      }
+      if ($data) {
+        $entity->field_penton_profile[$language][0]['data'] = serialize($data);
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_field_attach_load().
+ */
+function penton_user_field_attach_load($entity_type, $entities, $age, $options) {
+  if ($entity_type == 'user') {
+    foreach ($entities as $key => $entity) {
+      $language = !empty($entity->language) ? $entity->language : LANGUAGE_NONE;
+      if (!isset($entity->field_penton_profile)) {
+        continue;
+      }
+      if (!empty($entity->field_penton_profile[$language][0]['data'])) {
+        // Unserialize data, else skip if string.
+        if ($data = unserialize($entity->field_penton_profile[$language][0]['data'])) {
+          foreach ($data as $field_key => $field_value) {
+            // Store unserialized data values in additional fields.
+            $entities[$key]->field_penton_profile[$language][0][$field_key] = $field_value;
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_preprocess_region().
+ */
+function penton_user_preprocess_region(&$variables) {
+  $function = 'penton_user_preprocess_region_' . $variables['region'];
+  if (function_exists($function)) {
+    $function($variables);
+  }
+}
+
+/**
+ * Implements hook_preprocess_region_REGION_ID().
+ */
+function penton_user_preprocess_region_left_col(&$variables) {
+  if (array_key_exists('penton_user_account_information', $variables['elements'])) {
+    $variables['left_col_caption'] = 'Account Settings';
+  }
+}
+
+/**
+ * Implements hook_preprocess_FORM_ID().
+ */
+function penton_user_preprocess_penton_profile_form(&$variables) {
+  $variables['form']['picture']['#attributes']['class'][] = 'hidden';
+  $variables['no_file'] = FALSE;
+  if (empty($variables['form']['picture']['picture']['#value'])) {
+    $variables['no_file'] = TRUE;
+    $variables['avatar'] = penton_user_get_avatar($variables);
+  }
+  else {
+    $variables['avatar'] = image_style_url('non_feat_user_profile_standard', $variables['form']['picture']['picture']['#value']->uri);
+  }
+}
+
+/**
+ * Returns a string containing url with user profile picture.
+ *
+ * In case if there are no user profile image uploaded
+ * returns path to default one.
+ *
+ * @param array $variables
+ *   Array of form parameters.
+ */
+function penton_user_get_avatar($variables) {
+  $avatar = url(drupal_get_path('theme', 'penton_core_theme') . '/images/account-default-image.png', array('absolute' => TRUE));
+  if (isset($variables['account']->picture)) {
+    $avatar = image_style_url('non_feat_user_profile_standard', $variables['account']->picture->uri);
+  }
+  return $avatar;
+}
+
+/**
+ * Implements hook_preprocess_FORM_ID().
+ */
+function penton_user_preprocess_penton_account_information_block_content(&$variables) {
+  $variables['avatar'] = penton_user_get_avatar($variables);
+  module_load_include('inc', 'user', 'user.pages');
+  $form = drupal_get_form('user_profile_form', $variables['account']);
+  hide($form['picture']['picture_delete']);
+  $form['#theme'] = array('penton_profile_form');
+  // Picking up the list of profile fields machine names.
+  $fields = field_info_instances('user', 'user');
+  $show_fields = array(
+    'field_penton_secondary_email',
+    'field_penton_profile',
+  );
+  foreach ($fields as $field) {
+    if (!in_array($field['field_name'], $show_fields)) {
+      $form[$field['field_name']]['#attributes'] = array('class' => array('hidden'));
+      $form[$field['field_name']]['#disabled'] = TRUE;
+    }
+  }
+  $form['field_penton_profile'][LANGUAGE_NONE][0]['name_block']['#attributes'] = array('style' => 'display: none;');
+  $form['field_penton_profile'][LANGUAGE_NONE][0]['organisation_block']['#attributes'] = array('style' => 'display: none;');
+  $form['field_penton_profile'][LANGUAGE_NONE][0]['name_block']['#disabled'] = TRUE;
+  $form['field_penton_profile'][LANGUAGE_NONE][0]['organisation_block']['#disabled'] = TRUE;
+  $form['field_penton_profile'][LANGUAGE_NONE][0]['country']['#required'] = FALSE;
+  $form['account']['status']['#access'] = FALSE;
+  $form['account']['roles']['#access'] = FALSE;
+  if (isset($form['mimemail'])) {
+    $form['mimemail']['#access'] = FALSE;
+  }
+  $form['account']['name']['#title'] = t('Username:');
+  $form['account']['mail']['#title'] = t('Email address:');
+
+  $pass_confirmation_fields = array(
+    'pass1',
+    'pass2',
+  );
+  foreach ($pass_confirmation_fields as $confirmation_field) {
+    $form['account']['pass'][$confirmation_field]['#attributes']['placeholder'][] = t('******');
+    $form['account']['pass'][$confirmation_field]['#attributes']['title'][] = t('To change the current user password, enter the password in both fields.');
+    $form['account']['pass'][$confirmation_field]['#attributes']['class'][] = "tooltip";
+  }
+  $form['account']['pass']['pass1']['#title'] = t('Password:');
+  $form['account']['pass']['pass2']['#title'] = t('Confirm password:');
+  $form['account']['current_pass']['#access'] = FALSE;
+  $form['field_penton_secondary_email'][LANGUAGE_NONE][0]['email']['#title'] = t('Secondary email address:');
+  $form['field_penton_profile'][LANGUAGE_NONE][0]['country']['#title'] = 'Country:';
+  $form['field_penton_profile'][LANGUAGE_NONE][0]['locality_block']['postal_code']['#title'] = 'Zip/postal code:';
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'save account',
+  );
+  $form['actions']['cancel'] = array(
+    '#type' => 'submit',
+    '#value' => 'cancel',
+    '#attributes' => array(
+      'id' => 'js-acc-canc-aside-btn',
+    ),
+  );
+
+  $variables['user_profile'] = $form;
+}
+
+/**
+ * Implements hook_preprocess_FORM_ID().
+ */
+function penton_user_preprocess_user_profile(&$variables) {
+  $profile_fields = penton_user_get_public_profile_fields();
+  $variables['public_profile_category'] = array(
+    'title' => 'Public Profile Information',
+    'caption' => 'The information below will be public.',
+    'fields' => $profile_fields,
+    'user_profile' => $variables['user_profile'],
+  );
+  $variables['profile_additional_info'] = array(
+    'title' => 'Additional Information',
+    'caption' => '',
+    'fields' => penton_user_get_additional_fields(),
+    'user_profile' => $variables['user_profile'],
+  );
+  if (penton_user_permissions_edit_account_access()) {
+    $form = drupal_get_form('user_profile_form', $variables['elements']['#account']);
+    $form_edit_profile = $form;
+    $form_edit_additional = $form;
+    $fields = field_info_instances('user', 'user');
+    $allowed_fields_info = penton_user_get_public_profile_fields();
+    $allowed_fields_additional = penton_user_get_additional_fields();
+    foreach ($fields as $field) {
+      if (!in_array($field['field_name'], $allowed_fields_info)) {
+        $form_edit_profile[$field['field_name']]['#access'] = FALSE;
+      }
+    }
+    foreach ($fields as $field) {
+      if (!in_array($field['field_name'], $allowed_fields_additional)) {
+        $form_edit_additional[$field['field_name']]['#access'] = FALSE;
+      }
+    }
+    $form_edit_profile['picture']['#access'] = FALSE;
+    $form_edit_profile['account']['#access'] = FALSE;
+    if (isset($form_edit_profile['mimemail'])) {
+      $form_edit_profile['mimemail']['#access'] = FALSE;
+    }
+    $form_edit_additional['picture']['#access'] = FALSE;
+    $form_edit_additional['account']['#access'] = FALSE;
+    if (isset($form_edit_additional['mimemail'])) {
+      $form_edit_additional['mimemail']['#access'] = FALSE;
+    }
+  }
+  else {
+    $form_edit_profile = array();
+    $form_edit_additional = array();
+  }
+  $variables['form_edit_profile'] = $form_edit_profile;
+  $variables['form_edit_additional'] = $form_edit_additional;
+  if (module_exists('uc_order')) {
+    $purchases = _penton_user_get_purchases();
+    $variables['purchases'] = $purchases;
+  }
+  if (module_exists('penton_fulfillment_services') && variable_get('esp_web_services_enable')) {
+    $acc_info = penton_fulfillment_services_get_user_iformation();
+    $variables['profile_esp_fields'] = array(
+      'esp_has_access' => $acc_info['has_access'],
+      'esp_status' => $acc_info['status'],
+      'esp_account_number' => $acc_info['account_number'],
+      'esp_zip_code' => $acc_info['zip_code'],
+      'esp_expire_date' => $acc_info['expire_date'],
+    );
+    $form_edit_esp = drupal_get_form('penton_fulfillment_services_profile_form');
+    $variables['form_edit_esp'] = $form_edit_esp;
+  }
+}
+
+/**
+ * Returns a set of fields to render additional info of a public profile.
+ */
+function penton_user_get_additional_fields() {
+  $profile = drupal_get_profile();
+  $fields = array(
+    'field_penton_question1',
+    'field_penton_question2',
+  );
+  if ($profile == 'penton_wealthmanagement_tt' || $profile == 'penton_wealthmanagement_prod') {
+    return array_merge($fields, array(
+      'field_penton_job_function',
+      'field_penton_retirement_plans',
+      'field_penton_primary_comp',
+      'field_penton_years_in_finance',
+      'field_penton_gross_annual_prod',
+      'field_penton_recommend_products',
+      'field_penton_estate_planning',
+    ));
+  }
+  else {
+    return $fields;
+  }
+}
+
+/**
+ * Implements hook_addressfield_default_values_alter().
+ */
+function penton_user_addressfield_default_values_alter(&$default_values, $context) {
+  $default_values['middle_name'] = '';
+}
+
+/**
+ * Implements hook_field_widget_addressfield_standard_form_alter().
+ */
+function penton_user_field_widget_addressfield_standard_form_alter(&$element, &$form_state, $context) {
+  if ($element['#field_name'] == 'field_penton_profile') {
+    $element['#type'] = 'container';
+  }
+}
+
+/**
+ * Replaces standart "!name field is required." error with custom.
+ */
+function penton_user_account_required_validate($element, &$form_state, $form) {
+  if (!empty($_SESSION['messages']['error'])) {
+
+    // Check all available errors.
+    foreach ($_SESSION['messages']['error'] as $message) {
+      $replacement = NULL;
+
+      if (empty($element['#value'])) {
+        // Search for standart core validate error message. See form.inc:1449.
+        if ($message == t('!name field is required.', array('!name' => $element['#title']))) {
+          // Replace only for name and pass fields.
+          switch ($element['#name']) {
+            case 'name':
+              switch ($form['#form_id']) {
+                case 'user_login':
+                  $replacement = t('Please enter your email address or username.');
+                  break;
+
+                case 'user_pass':
+                  $replacement = t('Please enter your email address.');
+                  break;
+
+                default:
+                  $replacement = t('Please enter a username.');
+                  break;
+              }
+              break;
+
+            case 'pass':
+              $replacement = t('Please enter a password.');
+              break;
+
+            case 'mail':
+            case 'email':
+              $replacement = t('Please enter your email address.');
+              break;
+
+            case 'to':
+              $replacement = t('Please enter an email address.');
+              break;
+          }
+
+          if (isset($replacement)) {
+            penton_user_form_replace_error_message($message, $replacement);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Replaces error message with custom one. Applies to $_SESSION && form_errors.
+ */
+function penton_user_form_replace_error_message($message, $replacement) {
+  $form_errors = &drupal_static('form_set_error', array());
+
+  foreach (array(&$_SESSION['messages']['error'], &$form_errors) as &$errors) {
+    $error_id = array_search($message, $errors);
+
+    if ($error_id !== FALSE) {
+      $errors[$error_id] = $replacement;
+    }
+  }
+}
+
+/**
+ * Validates user acount fields on PEN_USER_* system variables.
+ */
+function penton_user_account_length_validate($element, &$form_state, $form) {
+  $length = drupal_strlen($element['#value']);
+
+  switch ($element['#name']) {
+    case 'message':
+      $max  = variable_get('PEN_EMAIL_max_subject_chars', 1000);
+      $min  = 0;
+      $name = 'subject';
+      break;
+
+    case 'to':
+    case 'mail':
+      $username_max = variable_get('PEN_EMAIL_max_name_chars', 64);
+      $max  = $username_max > USERNAME_MAX_LENGTH ? USERNAME_MAX_LENGTH : $username_max;
+      $min  = variable_get('PEN_EMAIL_min_name_chars', 5);
+      $name = 'name';
+      break;
+
+    case 'name':
+      $username_max = variable_get('PEN_USER_username_max_chars', 64);
+      $max  = $username_max > USERNAME_MAX_LENGTH ? USERNAME_MAX_LENGTH : $username_max;
+      $min  = variable_get('PEN_USER_username_min_chars', 5);
+      $name = 'username';
+      break;
+
+    case 'pass':
+      $max  = variable_get('PEN_USER_password_max_chars', 128);
+      $min  = variable_get('PEN_USER_password_min_chars', 4);
+      $name = 'password';
+      break;
+  }
+
+  $max_message = t('Please enter a !name under !count characters long.', array('!name' => $name, '!count' => $max));
+  $min_message = t('Please enter a !name at least !count characters long.', array('!name' => $name, '!count' => $min));
+
+  if ($length > $max) {
+    form_error($element, $max_message);
+  }
+  elseif ($length < $min) {
+    form_error($element, $min_message);
+  }
+}
+
+/**
+ * Replaces standard validation errors with custom.
+ */
+function penton_user_account_form_validate($form, &$form_state) {
+  if (!empty($_SESSION['messages']['error'])) {
+    // Make pointer to the errors stored in session for future changes.
+    $errors = $_SESSION['messages']['error'];
+
+    // Standart core validate error messages.
+    $refferencies = array(
+      'name' => array(
+        'messages' => array(
+          // See user.module:1258.
+          'taken' => t('The name %name is already taken.', array(
+            '%name' => $form_state['values']['name'],
+          )),
+          // See user.module:2228.
+          'unrecognized' => t('Sorry, unrecognized username or password. <a href="@password">Have you forgotten your password?</a>', array(
+            '@password' => url('user/password', array(
+              'query' => array(
+                'name' => $form_state['values']['name'],
+              ),
+            )),
+          )),
+          // See user.pages.inc:71.
+          'unrecognized_2' => t('Sorry, %name is not recognized as a user name or an e-mail address.', array(
+            '%name' => $form_state['input']['name'],
+          )),
+        ),
+        'replacements' => array(
+          'taken'          => t('Sorry, that username is taken. Please enter in a different username.'),
+          'unrecognized'   => t('Sorry, unrecognized email/username or password. Have you forgotten your password?'),
+          'invalid_email'  => t('Please enter a valid email address.'),
+          'not_associated' => t('Sorry, the email address %email is not associated with an account. Please try again or !new_account_link.', array(
+            '%email'            => $form_state['input']['name'],
+            '!new_account_link' => l(t('create a new account'), 'penton_modal/nojs/register/advanced', array(
+              'attributes' => array(
+                'class' => array(
+                  'ctools-use-modal',
+                  'ctools-modal-modal-popup-medium',
+                ),
+                'rel' => 'nofollow',
+              ),
+            )),
+          )),
+        ),
+      ),
+      'mail' => array(
+        'messages' => array(
+          // See user.module:1277.
+          'registered' => t('The e-mail address %email is already registered. <a href="@password">Have you forgotten your password?</a>', array(
+            '%email'     => $form_state['values']['mail'],
+            '@password'  => url('user/password'),
+          )),
+          // See user.module:680.
+          'not_valid'  => t('The e-mail address %mail is not valid.', array(
+            '%mail' => $form_state['values']['mail'],
+          )),
+        ),
+        'replacements' => array(
+          'registered'  => t('Looks like an account has already been created with this email address. Please try logging in.'),
+          'not_valid'   => t('Please enter a valid email address.'),
+        ),
+      ),
+    );
+
+    foreach ($refferencies as $field => $data) {
+      if (!empty($form_state['values'][$field])) {
+        foreach ($data['messages'] as $type => $message) {
+          // Search for standart core validate error message.
+          $key = array_search($message, $errors);
+
+          if (FALSE !== $key) {
+            switch ($type) {
+              case 'unrecognized':
+                if (empty(user_load_by_mail($form_state['input'][$field]))) {
+                  $type = 'not_associated';
+                }
+                break;
+
+              case 'unrecognized_2':
+                if (!valid_email_address($form_state['input'][$field])) {
+                  $type = 'invalid_email';
+                }
+                elseif ('user_pass' == $form['#form_id']) {
+                  $type = 'not_associated';
+                }
+                break;
+            }
+
+            penton_user_form_replace_error_message($message, $data['replacements'][$type]);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Replaces forward_form validation errors with custom.
+ */
+function penton_forward_form_validate($form, &$form_state) {
+  if (!empty($_SESSION['messages']['error'])) {
+    // Make pointer to the errors stored in session for future changes.
+    $errors =& $_SESSION['messages']['error'];
+
+    // See forward.module:563.
+    $key = array_search(t('Your Email address is invalid.'), $errors);
+
+    if (FALSE !== $key) {
+      $errors[$key] = t('Please enter a valid email address.');
+    }
+  }
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function penton_user_block_info() {
+  $blocks['account_information'] = array('info' => t('Account information'));
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function penton_user_block_view($delta) {
+  $block = array();
+  switch ($delta) {
+    case 'account_information':
+      $block['content'] = _penton_user_account_information_block_content();
+      break;
+
+  }
+  return $block;
+}
+
+/**
+ * Returns purchases of current user.
+ */
+function _penton_user_get_purchases() {
+  global $user;
+  $query = db_select('uc_file_users', 'u')->extend('TableSort')
+    ->condition('uid', $user->uid)
+    ->orderBy('u.granted', 'DESC');
+  $query->leftJoin('uc_file_products', 'p', 'p.pfid = u.pfid');
+  $query->leftJoin('uc_product_features', 'pf', 'pf.pfid = u.pfid');
+  $query->fields('u', array(
+      'fid',
+      'granted',
+      'accessed',
+      'download_limit',
+      'expiration',
+    ))
+    ->fields('p', array('description'))
+    ->fields('pf', array('nid'));
+
+  $row = 0;
+  $result = $query->execute();
+  foreach ($result as $file) {
+    $download_limit = $file->download_limit;
+    $onclick = array(
+      'attributes' => array(
+        'onclick' => 'uc_file_update_download(' . $row . ', ' . $file->accessed . ', ' . ((empty($download_limit)) ? -1 : $download_limit) . ');',
+        'id' => 'link-' . $row,
+      ),
+    );
+    $product_title = node_load($file->nid)->title;
+    if ($file->expiration == FALSE) {
+      $file_link = l($product_title, 'download/' . $file->fid, $onclick);
+    }
+    elseif (REQUEST_TIME > $file->expiration) {
+      $file_link = basename($product_title);
+    }
+    else {
+      $file_link = l(basename($product_title), 'download/' . $file->fid, $onclick) . ' (' . t('expires on @date', array('@date' => format_date($file->expiration, 'uc_store'))) . ')';
+    }
+    $files[] = array(
+      'granted' => $file->granted,
+      'link' => $file_link,
+      'description' => $file->description,
+      'accessed' => $file->accessed,
+      'download_limit' => $file->download_limit,
+      'product_title' => $product_title,
+    );
+    $row++;
+  }
+
+  return $files;
+}
+
+/**
+ * Compose variables.
+ *
+ * @return array
+ *   Returning account to use in template.
+ */
+function _penton_user_account_information_block_content() {
+  global $user;
+  $account = user_load($user->uid);
+
+  return theme('penton_account_information_block_content', array('account' => $account));
+}
+
+/**
+ * Checks if user is the owner of profile.
+ *
+ * @param object $account
+ *   Account.
+ */
+function _penton_user_owner_profile_access($account) {
+  global $user;
+  if ($user->uid == $account->uid) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Page callback: Validates user's e-mail.
+ */
+function penton_user_validate_email($registration_type, $account, $hashed_pass) {
+  $pass_rehash = user_pass_rehash($account->pass, $account->created, $account->login, $account->uid);
+
+  if ($hashed_pass == $pass_rehash) {
+    if (array_key_exists(PENTON_USER_UNVERIFIED_RID, $account->roles)) {
+      unset($account->roles[PENTON_USER_UNVERIFIED_RID]);
+      user_save($account);
+    }
+
+    if (user_is_anonymous()) {
+      $registration_type = 'logged_out';
+    }
+
+    switch ($registration_type) {
+      case 'logged_out':
+        $welcome_message = t('Thank you! Your email address has been verified. You can now log in to leave comments and customize your site profile.');
+        break;
+
+      case 'advanced':
+        $query = new EntityFieldQuery();
+        $query->entityCondition('entity_type', 'node')
+          ->entityCondition('bundle', 'article')
+          ->propertyCondition('promote', NODE_PROMOTED)
+          ->propertyCondition('status', NODE_PUBLISHED)
+          ->fieldOrderBy('field_penton_published_datetime', 'value', 'DESC')
+          ->propertyOrderBy('changed', 'DESC')
+          ->range(0, 3);
+
+        $result = $query->execute();
+        $good_stories = array();
+        if (!empty($result['node'])) {
+          foreach ($result['node'] as $nid => $node_result) {
+            $good_stories[] = node_load($nid);
+          }
+        }
+        $welcome_message = t('Thank you! Your email address has been verified. You will now be able to leave comments and customize your site profile.
+<br>
+<br>
+Ready to explore !sitename? Here are some of our favorite articles to get you started:
+<br>
+<br>',
+          array(
+            '!sitename' => variable_get('site_name'),
+          )
+        );
+        if (!empty($good_stories)) {
+          $welcome_message .= '<ul class="welcome-message__good-stories">';
+          foreach ($good_stories as $good_story) {
+            $welcome_message .= '<li>' . l($good_story->title, 'node/' . $good_story->nid) . '</li>';
+          }
+          $welcome_message .= '</ul>';
+        }
+        break;
+
+      case 'basic':
+        $welcome_message = t("Thank you! Your email address has been verified. You're now able to leave comments and customize your site profile.
+<br>
+<br>
+One last thing:
+<br>
+<br>
+When you created your account, we did not ask you to set a password or username for commenting. Let's do that now.
+<a href=\"!url\">Set my password and username</a>",
+          array(
+            '!url' => url('user/' . $account->uid),
+          )
+        );
+        if (!empty($good_stories)) {
+          $welcome_message .= '<ul class="welcome-message_good-stories">';
+          foreach ($good_stories as $good_story) {
+            $welcome_message .= '<li>' . l($good_story->title, 'node/' . $good_story->uid) . '</li>';
+          }
+          $welcome_message .= '/<ul>';
+        }
+        break;
+
+      default:
+        $welcome_message = t('Thank you! Your email address has been verified. You can now log in to leave comments and <a href="!url">customize your site profile</a>.', array(
+          '!url' => url('user/' . $account->uid),
+        ));
+    }
+    drupal_set_message($welcome_message, 'status', FALSE);
+    drupal_goto("user/{$account->uid}");
+  }
+  else {
+    drupal_not_found();
+  }
+}

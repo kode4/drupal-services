@@ -1,0 +1,7 @@
+name = Penton Related Content
+package = Penton
+description = Provides Related content and Inline Related content
+core = 7.x
+version = "7.x-1.0"
+
+files[] = tests/penton_related_content.test

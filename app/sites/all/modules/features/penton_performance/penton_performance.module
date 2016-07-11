@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the penton_performance feature.
+ */
+
+include_once 'penton_performance.features.inc';

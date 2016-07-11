@@ -1,0 +1,78 @@
+<?php
+/**
+ * @file
+ * Installation file for the penton_comment module.
+ */
+
+/**
+ * Implements hook_install().
+ *
+ * Adds new role with proper permissions.
+ * Adds a user with such role.
+ */
+function penton_comment_install() {
+  // Add role for comment moderation.
+  $rid = db_insert('role')
+    ->fields(array('name' => 'comment moderator', 'weight' => PENTON_COMMENT_MODERATOR_RID - 1))
+    ->execute();
+
+  // Sanity check to ensure role id match the constant we defined.
+  if ($rid != PENTON_COMMENT_MODERATOR_RID) {
+    db_update('role')
+      ->fields(array('rid' => PENTON_COMMENT_MODERATOR_RID))
+      ->condition('rid', $rid)
+      ->execute();
+  }
+
+  // Grant permissions to this role.
+  user_role_grant_permissions(PENTON_COMMENT_MODERATOR_RID, array('administer comments'));
+
+  // Now create a user with this role.
+  $edit = array(
+    'name' => variable_get('comment_moderator_name', 'comment_moderator'),
+    'pass' => variable_get('comment_moderator_pass', 'comment_moderator'),
+    'mail' => variable_get('comment_moderator_mail', 'comment_moderator@yopmail.com'),
+    'status'  => 1,
+    'language' => LANGUAGE_NONE,
+    'timezone' => variable_get('date_default_timezone', 'America/New_York'),
+    'roles' => array(
+      DRUPAL_AUTHENTICATED_RID => TRUE,
+      PENTON_GATED_ADVANCED_RID => TRUE,
+      PENTON_GATED_PAID_PREMIUM_RID => TRUE,
+      PENTON_COMMENT_MODERATOR_RID => TRUE,
+    ),
+  );
+
+  // Create user and report.
+  $t = get_t();
+  $account = user_save(drupal_anonymous_user(), $edit);
+  if ($account) {
+    drupal_set_message($t('Created the following user: <a href="@url">@name</a>', array('@name' => format_username($account), '@url' => url("user/$account->uid"))));
+  }
+  else {
+    drupal_set_message($t("Couldn't create the default comment moderator user."));
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function penton_comment_uninstall() {
+  // Delete role.
+  user_role_delete('comment moderator');
+
+  // Delete default user.
+  $username = variable_get('comment_moderator_name', 'comment_moderator');
+  if ($account = user_load_by_name($username)) {
+    user_delete($account->uid);
+    $t = get_t();
+    drupal_set_message($t('Deleted the following user: @name', array(
+      '@name' => $username,
+    )));
+  }
+
+  // Remove the variables defined.
+  variable_del('comment_moderator_name');
+  variable_del('comment_moderator_pass');
+  variable_del('comment_moderator_mail');
+}

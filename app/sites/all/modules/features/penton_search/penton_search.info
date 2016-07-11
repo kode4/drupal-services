@@ -1,0 +1,12 @@
+name = Penton Search
+description = Native search engine settings
+core = 7.x
+package = Penton Features
+version = 7.x-1.0
+dependencies[] = ctools
+dependencies[] = strongarm
+features[ctools][] = strongarm:strongarm:1
+features[features_api][] = api:2
+features[variable][] = search_active_modules
+features[variable][] = search_cron_limit
+features[variable][] = search_default_module

@@ -1,0 +1,7 @@
+name = Penton Infinite Scroll
+package = Penton
+description = Adding Infinite Scroll pager to pages
+core = 7.x
+version = "7.x-0.2"
+
+files[] = tests/penton_infinite_scroll.test

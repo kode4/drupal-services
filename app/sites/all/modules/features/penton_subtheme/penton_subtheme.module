@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Subtheme feature.
+ */
+
+include_once 'penton_subtheme.features.inc';

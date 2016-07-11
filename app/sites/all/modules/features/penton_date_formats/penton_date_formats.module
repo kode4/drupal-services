@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Date Formats feature.
+ */
+
+include_once 'penton_date_formats.features.inc';

@@ -1,0 +1,50 @@
+<?php
+/**
+ * @file
+ * Extending the social modules for Penton needs.
+ */
+
+/**
+ * Implements hook_init().
+ */
+function penton_social_init() {
+  drupal_add_js(drupal_get_path('module', 'penton_social') . '/js/penton_social.js');
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function penton_social_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'service_links_admin_settings' || $form_id == 'service_links_admin_services') {
+    if (!user_access('administer site configuration')) {
+      // Disallow operations apart from site admins.
+      $form['actions']['submit']['#disabled'] = TRUE;
+      drupal_set_message(t('This configuration is set globally for all sites. If you need to change it, you must supply a change request.'), 'warning');
+    }
+  }
+}
+
+/**
+ * Implements hook_permission().
+ */
+function penton_social_permission() {
+  // Set up permissions which are less important than the default 'administer
+  // site configuration' to change the social widgets settings.
+  return array(
+    'configure social widgets' => array(
+      'title' => t('Configure social services'),
+      'description' => t('Redifines social_links module permissions.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function penton_social_menu_alter(&$items) {
+  // Alter the route permissions for social_links module's settings.
+  $items['admin/config/services/service-links']['access arguments'] = array('configure social widgets');
+  $items['admin/config/services/service-links/general']['access arguments'] = array('configure social widgets');
+  $items['admin/config/services/service-links/services']['access arguments'] = array('configure social widgets');
+  $items['admin/config/services/service-links/widgets']['access arguments'] = array('configure social widgets');
+}

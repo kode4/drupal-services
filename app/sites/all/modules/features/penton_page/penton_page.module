@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Page feature.
+ */
+
+include_once 'penton_page.features.inc';

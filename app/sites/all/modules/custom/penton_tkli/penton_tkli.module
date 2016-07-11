@@ -1,0 +1,107 @@
+<?php
+/**
+ * @file
+ * Module for TKLi step on the Penton Registration form.
+ */
+
+/**
+ * Constant for Penton TKLi integration parameter.
+ */
+define('PENTON_TKLI_TEST_INTEGRATION', 'test');
+
+/**
+ * Implements hook_menu().
+ */
+function penton_tkli_menu() {
+  // Add TKLi settings page.
+  $items['admin/config/people/tkli'] = array(
+    'title' => 'TKLi settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('penton_tkli_settings_form'),
+    'access arguments' => array('administer users'),
+    'file' => 'penton_tkli.settings.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_form().
+ */
+function penton_tkli_form($form, &$form_state) {
+  $form['#attributes']['class'][] = 'penton_modal_reload_after_close';
+  $user = user_load($GLOBALS['user']->uid);
+
+  // Set penton profile array value to separate variable.
+  $penton_profile = isset($user->field_penton_profile[LANGUAGE_NONE][0]) ? $user->field_penton_profile[LANGUAGE_NONE][0] : NULL;
+  // Set up data variables.
+  $company = isset($penton_profile['organisation_name']) ?
+    urlencode($penton_profile['organisation_name']) : '';
+  $email = isset($user->mail) ? urlencode(strtolower($user->mail)) : '';
+  $fname = isset($penton_profile['first_name']) ? urlencode($penton_profile['first_name']) : '';
+  $lname = isset($penton_profile['last_name']) ? urlencode($penton_profile['last_name']) : '';
+  $postal_code = isset($penton_profile['postal_code']) ? urlencode($penton_profile['postal_code']) : '';
+  $country = isset($penton_profile['country']) ? urlencode($penton_profile['country']) : '';
+
+  // Set up required for CURL info.
+  // Getting fields from first register form step.
+  $data = array();
+
+  $data['company'] = $company;
+  $data['email'] = $email;
+  $data['fname'] = $fname;
+  $data['lname'] = $lname;
+  $data['postalCode'] = $postal_code;
+  $data['country'] = $country;
+
+  $data['lp'] = urlencode("{$GLOBALS['base_url']}/penton_ur_thank_you");
+  // Set 'integrate' parameter to 'test' to correct generation of framework.
+  $data['integrate'] = PENTON_TKLI_TEST_INTEGRATION;
+  $data['pgid'] = (variable_get('penton_tkli_sandbox_mode', FALSE)) ? 'ED84F890' : variable_get('penton_tkli_pgid', 'ED84F890');
+  $data['pid'] = (variable_get('penton_tkli_sandbox_mode', FALSE)) ? '4C471115' : variable_get('penton_tkli_pid', '');
+
+  $post_fields = '';
+  // Generate GET parameters string from $data array.
+  foreach ($data as $key => $value) {
+    $post_fields .= $key . '=' . $value . '&';
+  }
+  rtrim($post_fields, '&');
+
+  // Initialize CURL.
+  $ch = curl_init();
+
+  curl_setopt($ch, CURLOPT_FOLLOWLOCATION, TRUE);
+  curl_setopt($ch, CURLOPT_POST, TRUE);
+  curl_setopt($ch, CURLOPT_POSTFIELDS, $post_fields);
+  curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+  curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+  curl_setopt($ch, CURLOPT_URL, 'http://core.pentonleadgen.com/entry.go');
+  // Request HTML from TKLi service.
+  $curl_exec = curl_exec($ch);
+
+  curl_close($ch);
+  // If we can fount some offers for user - generate iframe to show it.
+  if (strpos($curl_exec, 'User will be shown the Offer Selection Page') !== FALSE) {
+    $offers_url = strstr($curl_exec, 'showOffers.go?lx=');
+    $offers_url = strstr($offers_url, '">Continue (Perform Next Action)</a>', TRUE);
+    $offers_url = (((isset($_SERVER['HTTPS'])) && ($_SERVER['HTTPS'] == 'on')) ? 'https://' : 'http://') . 'core.pentonleadgen.com/' . $offers_url;
+  }
+  else {
+    // Here is "Thank you" page.
+    $offers_url = "{$GLOBALS['base_url']}/penton_ur_thank_you?notkli=1";
+  }
+
+  $form['third_party_offers'] = array(
+    '#markup' => "<div><iframe src=\"{$offers_url}\" seamless=\"seamless\" style=\"border-width: 0; height: 475px; width: 100%;\" marginheight=\"0\" frameborder=\"0\" marginwidth=\"0\" ></iframe></div>",
+  );
+
+  // Buttons come from TKLI server.
+  unset($form['buttons']);
+  $form_state['no buttons'] = TRUE;
+
+  // Unset status messages.
+  drupal_get_messages(NULL, TRUE);
+
+  return $form;
+}

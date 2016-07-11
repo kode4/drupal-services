@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Store feature.
+ */
+
+include_once 'penton_store.features.inc';

@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Penton Image Styles feature.
+ */
+
+include_once 'penton_image_styles.features.inc';
