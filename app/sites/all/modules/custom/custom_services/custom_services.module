@@ -156,21 +156,21 @@ function custom_services_resource_build_index_list($results, $type, $field) {
     foreach ($results as $result) {
         if ($uri = services_resource_uri(array($type, $result->{$field}))) {
             $result->uri = $uri;
-            if ($type == 'user') {
-                services_remove_user_data($result);
-            }
             if($isFull == "full") {
                 if($type == 'node') {
                     $node = node_load($result->nid);
                 } else if($type == 'user') {
                     $node = user_load($result->uid);
                 } else if($type == 'file') {
-                    $node = file_load($result->fid);
+                    $node = _file_resource_retrieve($result->fid,true);
                 } else if($type == 'taxonomy_term') {
                     $node = taxonomy_term_load($result->tid);
                 }
             } else {
                 $node = $result;
+            }
+            if ($type == 'user') {
+                services_remove_user_data($node);
             }
         }
         $items[] = $node;
