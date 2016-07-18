@@ -132,7 +132,7 @@ function custom_services_resource_build_index_query($query, $page, $fields, $par
         }
     }
 }
-function custom_services_get_parameter($query) {
+function custom_services_get_parameter($query,$type="") {
     if(isset($_GET['parameters'])) {
         foreach($_GET['parameters'] as $field => $value) {
             $arr = explode(',', $value);
@@ -142,7 +142,7 @@ function custom_services_get_parameter($query) {
                 $query->condition('tv.name',$arr, "IN");
             }
             else {
-                $isDateFilter = _custom_services_filter_date($field, $value, $query);
+                $isDateFilter = _custom_services_filter_date($field, $value, $query,$type);
                 //var_dump($query);die;
                 if($isDateFilter === false) {
                     $query->condition('t.'.$field,$arr, "IN");
@@ -161,13 +161,19 @@ function custom_services_get_parameter($query) {
  * @param $query
  * @return bool
  */
-function _custom_services_filter_date($key, $value, $query)
+function _custom_services_filter_date($key, $value, $query,$type="")
 {
+    $table = 't.';
+    if($type == 'taxonomy_term') {
+        $query->innerjoin('taxonomy_index', 'ti', 't.tid = ti.tid');
+        $query->groupBy("ti.tid");
+        $table = 'ti.';
+    } 
     $today = _custom_services_today($value);
     if ($today !== false) {
         $today = strtotime($today);
-        $query->condition('t.' . $key, $today, ">=");
-        $query->condition('t.' . $key, $today + 86399, "<=");
+        $query->condition($table . $key, $today, ">=");
+        $query->condition($table . $key, $today + 86399, "<=");
         return true;
     }
     $arr = explode('|',$value);
@@ -176,7 +182,7 @@ function _custom_services_filter_date($key, $value, $query)
         //print_r($arrDate);
         if (isset($arrDate[0]) && count($arrDate) == 3 && strlen($arrDate[0]) == 4) {
             $timeStart = mktime(0,0,0,$arrDate[1],$arrDate[2],$arrDate[0]);
-            $query->condition('t.' . $key, $timeStart, ">=");
+            $query->condition($table . $key, $timeStart, ">=");
             if (isset($arr[1])) {
                 $arrDate = explode("-", $arr[1]);
                 if (isset($arrDate[0]) && count($arrDate) == 3 && strlen($arrDate[0]) == 4) {
@@ -188,7 +194,7 @@ function _custom_services_filter_date($key, $value, $query)
             } else {
                 $timeEnd = $timeStart + 86399;
             }
-            $query->condition('t.' . $key, $timeEnd, "<=");
+            $query->condition($table . $key, $timeEnd, "<=");
             //var_dump($query);die;
             return true;
         }
@@ -215,13 +221,18 @@ function custom_services_resource_build_index_list($results, $type, $field) {
             $result->uri = $uri;
             if($isFull == "full") {
                 if($type == 'node') {
-                    $node = node_load($result->nid);
+                    $node = _node_resource_retrieve($result->nid);
                 } else if($type == 'user') {
-                    $node = user_load($result->uid);
+                    $node = _user_resource_retrieve($result->uid);
                 } else if($type == 'file') {
                     $node = _file_resource_retrieve($result->fid,true);
                 } else if($type == 'taxonomy_term') {
-                    $node = taxonomy_term_load($result->tid);
+                    //die("sss");_taxonomy_term_resource_retrieve
+                    $node = _taxonomy_term_resource_retrieve($result->tid);
+                    $parent = _custom_taxonomy_parent($result->tid);
+                    if(isset($parent->parent)) {
+                        $node->parent = $parent->parent;
+                    }
                 }
             } else {
                 $node = $result;
