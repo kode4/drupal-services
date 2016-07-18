@@ -142,12 +142,69 @@ function custom_services_get_parameter($query) {
                 $query->condition('tv.name',$arr, "IN");
             }
             else {
-                $query->condition('t.'.$field,$arr, "IN");
+                $isDateFilter = _custom_services_filter_date($field, $value, $query);
+                //var_dump($query);die;
+                if($isDateFilter === false) {
+                    $query->condition('t.'.$field,$arr, "IN");
+                }
             }
 
         }
     }
     return $query;
+}
+
+/**
+ * @Des filter date time field
+ * @param $key
+ * @param $value
+ * @param $query
+ * @return bool
+ */
+function _custom_services_filter_date($key, $value, $query)
+{
+    $today = _custom_services_today($value);
+    if ($today !== false) {
+        $today = strtotime($today);
+        $query->condition('t.' . $key, $today, ">=");
+        $query->condition('t.' . $key, $today + 86399, "<=");
+        return true;
+    }
+    $arr = explode('|',$value);
+    if (isset($arr[0])) {
+        $arrDate = explode('-', $arr[0]);
+        //print_r($arrDate);
+        if (isset($arrDate[0]) && count($arrDate) == 3 && strlen($arrDate[0]) == 4) {
+            $timeStart = mktime(0,0,0,$arrDate[1],$arrDate[2],$arrDate[0]);
+            $query->condition('t.' . $key, $timeStart, ">=");
+            if (isset($arr[1])) {
+                $arrDate = explode("-", $arr[1]);
+                if (isset($arrDate[0]) && count($arrDate) == 3 && strlen($arrDate[0]) == 4) {
+                    $timeEnd = mktime(0,0,0,$arrDate[1],$arrDate[2],$arrDate[0]);
+                } else {
+                    $timeEnd = $timeStart + 86399;
+                }
+
+            } else {
+                $timeEnd = $timeStart + 86399;
+            }
+            $query->condition('t.' . $key, $timeEnd, "<=");
+            //var_dump($query);die;
+            return true;
+        }
+    }
+    return false;
+
+}
+
+function _custom_services_today($value)
+{
+    $value = strtolower($value);
+    if ($value === 'today') {
+        $value = date("Y-m-d");
+        return $value;
+    }
+    return false;
 }
 function custom_services_resource_build_index_list($results, $type, $field) {
     // Put together array of matching items to return.
