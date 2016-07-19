@@ -165,16 +165,20 @@ function _custom_services_filter_date($key, $value, $query,$type="")
 {
     $table = 't.';
     if($type == 'taxonomy_term') {
-        $query->innerjoin('taxonomy_index', 'ti', 't.tid = ti.tid');
-        $query->groupBy("ti.tid");
+        $query->innerjoin('term_authoring_info', 'ti', 't.tid = ti.tid');
+        //$query->groupBy("ti.tid");
         $table = 'ti.';
     } 
     $today = _custom_services_today($value);
     if ($today !== false) {
+        //echo $today;
         $today = strtotime($today);
+        /*echo '|'.date('Y-m-d',1469027782);
+        echo "|".$today;*/
         $query->condition($table . $key, $today, ">=");
         $query->condition($table . $key, $today + 86399, "<=");
-        return true;
+        //var_dump($query);
+        return $query;
     }
     $arr = explode('|',$value);
     if (isset($arr[0])) {
