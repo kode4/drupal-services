@@ -190,7 +190,7 @@ function _custom_services_filter_date($key, $value, $query,$type="")
             if (isset($arr[1])) {
                 $arrDate = explode("-", $arr[1]);
                 if (isset($arrDate[0]) && count($arrDate) == 3 && strlen($arrDate[0]) == 4) {
-                    $timeEnd = mktime(0,0,0,$arrDate[1],$arrDate[2],$arrDate[0]);
+                    $timeEnd = mktime(0,0,0,$arrDate[1],$arrDate[2],$arrDate[0])+86399;
                 } else {
                     $timeEnd = $timeStart + 86399;
                 }
