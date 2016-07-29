@@ -202,7 +202,13 @@ function _services_controller_execute_internals($controller, $args, $options) {
   }
 
   // Execute the controller callback.
-  $controller['callback'] = '_custom'.$controller['callback'];
+  //echo $controller['callback'];die;
+  if(strpos($controller['callback'], 'resource_index') !== false) {
+    $controller['callback'] = '_custom'.$controller['callback'];
+  } else {
+    $controller['callback'] = $controller['callback'];
+  }
+
   $result = call_user_func_array($controller['callback'], $args);
 
   drupal_alter('services_request_postprocess', $controller, $args, $result);

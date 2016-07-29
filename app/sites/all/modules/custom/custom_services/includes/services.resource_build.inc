@@ -15,7 +15,7 @@
  * @return array
  *  The resource definitions.
  */
-function _services_build_resources($endpoint_name = '') {
+function _custom_services_build_resources($endpoint_name = '') {
   module_load_include('inc', 'custom_services', 'includes/custom_services.runtime');
   $resources = array();
   $version_info = services_resource_api_version_info();
@@ -36,7 +36,7 @@ function _services_build_resources($endpoint_name = '') {
     }
     // Upgrade resources if needed.
     if ($api_version < $version_info['current_version']) {
-      _services_resource_upgrade($api_version, $module_resources, $version_info);
+      _custom_services_resource_upgrade($api_version, $module_resources, $version_info);
     }
 
     $resources = array_merge_recursive($resources, $module_resources);
@@ -47,7 +47,7 @@ function _services_build_resources($endpoint_name = '') {
   if (!empty($endpoint_name)) {
     $endpoint = services_endpoint_load($endpoint_name);
     // Apply the endpoint on the services
-    _services_apply_endpoint($resources, $endpoint, FALSE);
+    _custom_services_apply_endpoint($resources, $endpoint, FALSE);
   }
   drupal_alter('services_resources', $resources, $endpoint);
   // Process the resources, and collect all controllers in the process
@@ -116,7 +116,7 @@ function _services_build_resources($endpoint_name = '') {
  *  Optional. The version info array as returned from services_resource_api_version_info().
  * @return void
  */
-function _services_resource_upgrade($from, &$resources, $version_info = NULL) {
+function _custom_services_resource_upgrade($from, &$resources, $version_info = NULL) {
   module_load_include('inc', 'services', 'includes/services.resource_update');
 
   // Get version info if needed.
@@ -145,7 +145,7 @@ function _services_resource_upgrade($from, &$resources, $version_info = NULL) {
  *  Optional.
  * @return void
  */
-function _services_apply_endpoint(&$resources, $endpoint, $strict = TRUE) {
+function _custom_services_apply_endpoint(&$resources, $endpoint, $strict = TRUE) {
   if (is_array($endpoint) && isset($endpoint['build_info'])) {
     $endpoint = $endpoint['build_info']['args'][0];
   }
@@ -187,7 +187,7 @@ function _services_apply_endpoint(&$resources, $endpoint, $strict = TRUE) {
  *
  * @return array
  */
-function _services_core_resources() {
+function _custom_services_core_resources() {
   module_load_include('inc', 'services', 'resources/comment_resource');
   module_load_include('inc', 'services', 'resources/file_resource');
   module_load_include('inc', 'services', 'resources/node_resource');
