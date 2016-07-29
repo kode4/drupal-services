@@ -45,9 +45,18 @@ function custom_services_menu()
         'page arguments'    => array($endName),
         'type' => MENU_CALLBACK,
     );
-    $items['services/session/token'] = array(
-        'page callback' => '_custom_services_session_token',
-        'access callback' => TRUE,
+    $items[$path.'/user/login.json'] = array(
+        'title'             => 'Custom Services endpoint',
+        'page callback' => 'custom_services_endpoint_callback',
+        'access callback'   => "custom_services_access_menu",
+        'page arguments'    => array($endName),
+        'type' => MENU_CALLBACK,
+    );
+    $items[$path.'/user/token.json'] = array(
+        'title'             => 'Custom Services endpoint',
+        'page callback' => 'custom_services_endpoint_callback',
+        'access callback'   => "custom_services_access_menu",
+        'page arguments'    => array($endName),
         'type' => MENU_CALLBACK,
     );
     //print_r($items);die("sss");
@@ -58,7 +67,7 @@ function custom_services_endpoint_callback($endpoint_name) {
     $cache_key = 'services:' . $endpoint_name . ':resources';
     if ((!$cache = cache_get($cache_key)) || !isset($cache->data)) {
         module_load_include('inc', 'custom_services', 'includes/services.resource_build');
-        $resources = _services_build_resources($endpoint_name);
+        $resources = _custom_services_build_resources($endpoint_name);
         cache_set($cache_key, $resources);
     }
     // Explicitly set the title to avoid expensive menu calls in token
@@ -84,7 +93,7 @@ function custom_services_endpoint_callback($endpoint_name) {
             watchdog('custom_services', 'Server info main object: <pre>@info</pre>', array('@info' => print_r(services_server_info_object(), TRUE)), WATCHDOG_DEBUG);
         }
 
-        //die("dinhbang");
+
         print call_user_func($server . '_server');
         //die("sssb");
         // Do not let this output
@@ -100,8 +109,8 @@ function custom_services_resource_build_index_query($query, $page, $fields, $par
     if (!user_access('perform unlimited index queries') && $page_size > $default_limit) {
         $page_size = $default_limit;
     }
-    if(isset($_GET['pagesize'])) {
-        $page_size = $_GET['pagesize'];
+    if(isset($_REQUEST['pagesize'])) {
+        $page_size = $_REQUEST['pagesize'];
     }
     $query->range($page * $page_size, $page_size);
     if ($fields == '*') {
@@ -121,11 +130,11 @@ function custom_services_resource_build_index_query($query, $page, $fields, $par
             $query->condition($parameter, services_str_getcsv($parameter_value), $op);
         }
     }*/
-    if(isset($_GET['type'])) {
-        $query->condition('type',(string)$_GET['type'],'=');
+    if(isset($_REQUEST['type'])) {
+        $query->condition('type',(string)$_REQUEST['type'],'=');
     }
-    if(isset($_GET["sort"]) AND $_GET["direction"]) {
-        $query->orderBy($_GET["sort"], $_GET["direction"]);
+    if(isset($_REQUEST["sort"]) AND $_REQUEST["direction"]) {
+        $query->orderBy($_REQUEST["sort"], $_REQUEST["direction"]);
     } else if (isset($options['orderby'])) {
         foreach($options['orderby'] as $column => $sort) {
             $query->orderBy($column, $sort);
@@ -133,8 +142,8 @@ function custom_services_resource_build_index_query($query, $page, $fields, $par
     }
 }
 function custom_services_get_parameter($query,$type="") {
-    if(isset($_GET['parameters'])) {
-        foreach($_GET['parameters'] as $field => $value) {
+    if(isset($_REQUEST['parameters'])) {
+        foreach($_REQUEST['parameters'] as $field => $value) {
             $arr = explode(',', $value);
             if($field == 'roles') {
                 $query->condition('r.name',$arr, "IN");
@@ -219,7 +228,7 @@ function _custom_services_today($value)
 function custom_services_resource_build_index_list($results, $type, $field) {
     // Put together array of matching items to return.
     $items = array();
-    $isFull = isset($_GET['viewtype'])?$_GET['viewtype']:"";
+    $isFull = isset($_REQUEST['viewtype'])?$_REQUEST['viewtype']:"";
     foreach ($results as $result) {
         if ($uri = services_resource_uri(array($type, $result->{$field}))) {
             $result->uri = $uri;
@@ -252,14 +261,14 @@ function custom_services_resource_build_index_list($results, $type, $field) {
 function custom_services_services_resources() {
     module_load_include('inc', 'custom_services', 'includes/services.resource_build');
     // Return resources representing legacy services
-    return _services_core_resources();
+    return _custom_services_core_resources();
 }
 /**
  * Page callback to generate token.
  */
 function _custom_services_session_token() {
     drupal_add_http_header('Content-Type', 'text/plain');
-    print drupal_get_token('services');
+    print drupal_get_token('custom_services');
     drupal_exit();
 }
 function custom_services_access_menu() {
