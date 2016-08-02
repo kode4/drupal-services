@@ -163,7 +163,8 @@ function _services_controller_execute_internals($controller, $args, $options) {
 
   // Load the proper file.
   if (!empty($controller['file']) && $file = $controller['file']) {
-    $file['module'] = 'custom_services';
+    if($file['module'] == 'services')
+      $file['module'] = 'custom_services';
     //echo $file['type'].'|', $file['module'].'|', (isset($file['name']) ? $file['name'] : NULL);
     module_load_include($file['type'], $file['module'], (isset($file['name']) ? $file['name'] : NULL));
   }
